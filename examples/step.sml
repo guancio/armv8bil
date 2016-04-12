@@ -783,9 +783,9 @@ val curr_goal = ``
 (*    0:   d10103ff        sub     sp, sp, #0x40 *)
 tc_one_instruction2_by_bin "d10103ff" ``0w:word64``;
 (*    4:   f9000fe0        str     x0, [sp,#24] *)
-tc_one_instruction2_by_bin "f9000fe0";
+tc_one_instruction2_by_bin "f9000fe0" ``4w:word64``;;
 (*    8:   f9000be1        str     x1, [sp,#16] *)
-tc_one_instruction2_by_bin "f9000be1";
+tc_one_instruction2_by_bin "f9000be1" ``8w:word64``;
 (*    c:   f90007e2        str     x2, [sp,#8] *)
 tc_one_instruction2_by_bin "f90007e2";
 (*   10:   b90007e3        str     w3, [sp,#4] *)
@@ -793,13 +793,13 @@ tc_one_instruction2_by_bin "b90007e3";
 (*   14:   b9003bff        str     wzr, [sp,#56] *)
 tc_one_instruction2_by_bin "b9003bff";
 (*   18:   14000009        b       3c <internal_mul+0x3c> *)
-tc_one_instruction2_by_bin "14000009";
+tc_one_instruction2_by_bin "14000009" ``8w:word64``;;
 (*   1c:   b9803be0        ldrsw   x0, [sp,#56] *)
 tc_one_instruction2_by_bin "b9803be0";
 (*   20:   d37ff800        lsl     x0, x0, #1 *)
 tc_one_instruction2_by_bin "d37ff800";
 (*   24:   f94007e1        ldr     x1, [sp,#8] *)
-tc_one_instruction2_by_bin "f94007e1";
+tc_one_instruction2_by_bin "f94007e1"  ``8w:word64``;
 (*   28:   8b000020        add     x0, x1, x0 *)
 tc_one_instruction2_by_bin "8b000020";
 (*   2c:   7900001f        strh    wzr, [x0] *)
@@ -821,7 +821,7 @@ tc_one_instruction2_by_bin "6b00003f";
 (* OK, even if in CMP we are currently cheating *)
 
 (* 4c:   54fffe8c        b.gt    1c <internal_mul+0x1c> *)
-tc_one_instruction2_by_bin "54fffe8c";
+tc_one_instruction2_by_bin "54fffe8c"  ``8w:word64``;
 (* 50:   b94007e0        ldr     w0, [sp,#4] *)
 tc_one_instruction2_by_bin "b94007e0";
 (* 54:   51000400        sub     w0, w0, #0x1 *)
