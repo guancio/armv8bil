@@ -373,6 +373,44 @@ val single_step_assign_mem64_thm = prove( ``
 
 
 
+val static_jmp_thm = prove( ``
+!pc_value1 pc_value2 env past_steps lbl n l i.
+(lbl <> Label "") ==>
+(n > 0) ==>
+((EL i l) = (Jmp (Const (Reg64 pc_value2)))) ==>
+((LENGTH l) = (i+1)) ==>
+(env "" = (NoType,Unknown)) ==>
+(?n. ((INDEX_FIND 0 (\(x:bil_block_t). x.label = lbl) prog) =
+			SOME(n, <| label:= (Address (Reg64 pc_value1));
+				 statements:= l|>))
+) ==>
+(
+ (bil_exec_step_n
+   <|pco := SOME <|label := lbl; index := i|>;
+     pi :=prog;
+     environ := env; termcode := Unknown; debug := d1; execs := past_steps|>
+   n) = 
+(bil_exec_step_n
+   <|pco := SOME <|label := Address (Reg64 pc_value2); index := 0|>;
+     pi := prog;
+     environ :=env; termcode := Unknown; debug := d1;
+     execs := past_steps + 1|> (n-1))
+)
+``,
+       (REPEAT STRIP_TAC)
+       THEN (fn (asl,g) =>
+	  let val rx = (snd o dest_eq) g in
+	      (Q.ABBREV_TAC `s2=^rx`)(asl,g)
+	  end)
+       THEN (SIMP_TAC (srw_ss()) [Once bil_exec_step_n_def])
+       THEN (FULL_SIMP_TAC (arith_ss) [])
+       THEN (FULL_SIMP_TAC (srw_ss()) [bil_exec_step_def, bil_get_program_block_info_by_label_def])
+       THEN (FULL_SIMP_TAC (arith_ss) [])
+       THEN (computeLib.RESTR_EVAL_TAC [``bil_exec_step_n``, ``bool2b``])
+       THEN (FULL_SIMP_TAC (srw_ss()) [])
+);
+
+
 
 
 
@@ -503,25 +541,106 @@ end
 
 ;
 
+fun ONE_EXEC_JMP certs prog pc_value i =
+
+(fn (asl,curr_goal) => (
+let val exec_term = (fst o dest_eq o fst o dest_imp) curr_goal;
+    val (_, [state, steps]) = strip_comb exec_term;
+    val (_, [("pco", pco), _,  ("environ", env), tc, db, ("execs", ex)]) = TypeBase.dest_record state;
+    val lbl = (optionSyntax.dest_some) pco;
+    val (_, [("label", lbl), ("index", index)]) = TypeBase.dest_record lbl;val (sts1, _) = listSyntax.dest_list prog;
+    val sts = prog;
+    val (sts1, _) = listSyntax.dest_list sts;
+    val statement = List.nth(sts1, i-1);
+    val (operation, [addr_exp]) = strip_comb statement;
+    val (_, [addr]) = strip_comb addr_exp;
+    val (_, [addr_w]) = strip_comb addr;
+    val th1 = SPECL [pc_value, addr_w, env, ex, lbl, steps] static_jmp_thm;
+    val th2 = (SPECL [sts, numSyntax.mk_numeral(Arbnum.fromInt (i-1))]) th1;
+    val lbl_not_empty_thm = prove(``^((fst o dest_imp o concl) th2)``, (FULL_SIMP_TAC (srw_ss()) []));
+    val length_minus_i_not_zero_thm = prove(``^((fst o dest_imp o snd o dest_imp o concl) th2)``, (FULL_SIMP_TAC (arith_ss) []));
+    val hd_thm = prove (``(EL ^(numSyntax.mk_numeral(Arbnum.fromInt(i-1))) ^sts = Jmp (Const (Reg64 (^addr_w))))``, (FULL_SIMP_TAC (srw_ss()) []));
+    val length_thm = prove (``(LENGTH ^sts = ^(numSyntax.mk_numeral(Arbnum.fromInt(i-1)))+1)``, (FULL_SIMP_TAC (srw_ss()) []));
+    val th3 = (MP (MP (MP (MP th2 lbl_not_empty_thm) length_minus_i_not_zero_thm) hd_thm) length_thm);
+    (* For constant PC *)
+    val th3Bis = REWRITE_RULE [ASSUME ``s.PC = ^pc_value``] th3;
+    val th4 = UNDISCH_ALL th3Bis;
+in
+    (
+     (* We prove the big theorem and we use it for the substitution *)
+     (SUBGOAL_THEN (concl th4) (fn thm =>
+           ((REWRITE_TAC [thm]) THEN (SIMP_TAC (srw_ss()) []))
+     ))
+     THENL [
+          (* need to substitute the s.PC = 0 everywhere *)
+          (PAT_ASSUM ``s.PC=^pc_value`` (fn thm =>
+                   (RULE_ASSUM_TAC (REWRITE_RULE [thm]))
+                   THEN (ASSUME_TAC thm)))
+          THEN (fn (asl,goal) =>
+               (MAP_EVERY (fn tm =>
+                              (* The hypotesis is in the assumptions *)
+                              if List.exists (fn tm1 => tm1 = tm) asl then ALL_TAC
+                              (* "tmp_arm8_state_PC" ≠ "" *)
+                              else if (is_neq tm) andalso ((snd o dest_eq o dest_neg) tm = ``""``) then
+                                   (ASSUME_TAC (prove(tm, FULL_SIMP_TAC (srw_ss()) [])))
+                              (* it is an existential quantifier, we try to solve this using the assumptions *)
+                              else if (is_exists tm) then
+                                   ((SUBGOAL_THEN tm (fn thm => ASSUME_TAC thm))
+                                    THENL [(FULL_SIMP_TAC (srw_ss()) [
+                                    					    bool_cast_simpl3_tm,
+                                                  bool_cast_simpl4_tm]), ALL_TAC])
+                              (* env" "" = (NoType,Unknown) *)
+                              else if (is_eq tm) andalso ((snd o dest_eq)tm = ``(NoType,Unknown)``) then
+                                   ((SUBGOAL_THEN tm (fn thm => ASSUME_TAC thm))
+                                    THENL [(FULL_SIMP_TAC (srw_ss()) []), ALL_TAC])
+                              else (print_term tm;
+                                    ALL_TAC))
+                    (hyp th4)
+          )(asl,goal))
+          THEN (ACCEPT_TAC th4)
+          ,
+          ALL_TAC]
+    )
+end
+
+)(asl,curr_goal))
+
+;
+
+
+fun ONE_EXEC_MAIN certs prog pc_value i =
+
+(fn (asl,curr_goal) => (
+let  val (sts1, _) = listSyntax.dest_list prog;
+     val statement = List.nth(sts1, i-1);
+     val (operation, _) = strip_comb statement;
+in
+  if (operation = ``Assign``) then (ONE_EXEC2 certs prog pc_value i)
+  else (ONE_EXEC_JMP certs prog pc_value i)
+end
+)(asl,curr_goal))
+
+;
 
 
 
-fun tc_one_instruction2_by_bin instr =
+
+fun tc_one_instruction2_by_bin instr pc_value =
     let val (p, certs, [step]) = tc_stmt_arm8_hex instr;
   val (sts, sts_ty) = listSyntax.dest_list p;
-  val sts = List.concat [sts, [``Jmp (Address (Reg64 (s.PC+4w)))``]];
+  val sts = List.concat [sts, [``Jmp (Const (Reg64 (^pc_value+4w)))``]];
   val p = listSyntax.mk_list(sts,sts_ty);
-	val goal = tc_gen_goal p certs step ``0w:word64``;
+	val goal = tc_gen_goal p certs step pc_value;
 	val thm = prove(``^goal``,
-			(DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)
+			(DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)
 		        THEN (FULL_SIMP_TAC (srw_ss()) [])
-			(* for every instruction *)
-			THEN (MAP_EVERY (ONE_EXEC2 certs p ``0w:word64``) (List.tabulate (List.length certs, fn x => x+1)))
+			(* for every instruction, plus 1 since the fixed jump has no certificate *)
+			THEN (MAP_EVERY (ONE_EXEC_MAIN certs p pc_value) (List.tabulate ((List.length certs) + 1, fn x => x+1)))
 			(* Computation completed *)
 			THEN (FULL_SIMP_TAC (srw_ss()) [Once bil_exec_step_n_def])
 			THEN DISCH_TAC
 			(* use the step theorem *)
-			THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [] (DISCH_ALL step))))
+			THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [ASSUME ``s.PC=^pc_value``] (DISCH_ALL step))))
 			THEN (FULL_SIMP_TAC (srw_ss()) [])
 			THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def, bool2b_def])
 		       );
@@ -529,18 +648,18 @@ fun tc_one_instruction2_by_bin instr =
 	thm
     end;
 
-fun tc_one_instruction2 inst =
-    let val code = arm8AssemblerLib.arm8_code inst;
+fun tc_one_instruction2 inst pc_value =
+    let val code = arm8AssemblerLib.arm8_code inst ;
       	val instr = (hd code);
     in
-	tc_one_instruction2_by_bin instr
+	tc_one_instruction2_by_bin instr pc_value
     end;
 
 
 
 (* COMPARISON: old execution *)
 tc_one_instruction `MOV X0, #1`;
-tc_one_instruction2 `MOV X0, #1`;
+tc_one_instruction2 `MOV X0, #1` ``0w:word64``;
 
 tc_one_instruction `ADD X0, X0, X0`;
 tc_one_instruction2 `ADD X0, X0, X0`;
@@ -574,16 +693,17 @@ tc_one_instruction2 `ADDS X0, X1, X0`;
 
 
 (*   2c:   7900001f        strh    wzr, [x0] *)
-val instr = "7900001f";
+val inst = `MOV X1, #1`;
+val instr = "d10103ff";
 val code = arm8AssemblerLib.arm8_code `MOV X1, #1`;
 val instr = (hd code);
+val pc_value = ``0w:word64``;
 (* 2.11 seconds *)
 val (p, certs, [step]) = tc_stmt_arm8_hex instr;
 val (sts, sts_ty) = listSyntax.dest_list p;
-val sts = List.concat [sts, [``Jmp (Address (Reg64 (s.PC+4w)))``]];
+val sts = List.concat [sts, [``Jmp (Const (Reg64 (^pc_value+4w)))``]];
 val p = listSyntax.mk_list(sts,sts_ty);
-val goal = tc_gen_goal p certs step ``0w:word64``;
-val pc_value = ``0w:word64``;
+val goal = tc_gen_goal p certs step pc_value;
 
 prove(``^goal``,
  (* first processing 0.6s *)
@@ -591,10 +711,11 @@ prove(``^goal``,
 	  THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)
 	  THEN (FULL_SIMP_TAC (srw_ss()) [])
     
-THEN (ONE_EXEC2 certs p pc_value 1)
-THEN (ONE_EXEC2 certs p pc_value 2)
-THEN (ONE_EXEC2 certs p pc_value 3)
-THEN (ONE_EXEC2 certs p pc_value 4)
+THEN (ONE_EXEC_MAIN certs p pc_value 1)
+THEN (ONE_EXEC_MAIN certs p pc_value 2)
+THEN (ONE_EXEC_MAIN certs p pc_value 3)
+THEN (ONE_EXEC_MAIN certs p pc_value 4)
+THEN (ONE_EXEC_MAIN certs p pc_value 5)
 
 
 (* THEN (ONE_EXEC2 certs 5) *)
@@ -604,20 +725,28 @@ THEN (FULL_SIMP_TAC (srw_ss()) [Once bil_exec_step_n_def])
 THEN DISCH_TAC
 
 (* use the step theorem *)
-THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [] (DISCH_ALL step))))
+THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [ASSUME ``s.PC=0w``] (DISCH_ALL step))))
 THEN (FULL_SIMP_TAC (srw_ss()) [])
 
 THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def, bool2b_def])
 );
 
 
-val i = 1;
+val i = 5;
 val prog = p;
 val curr_goal = ``
 (bil_exec_step_n
-   <|pco := SOME <|label := Address (Reg64 0w); index := 0|>;
-     pi := prog; environ := env; termcode := Unknown; debug := d1;
-     execs := e1|> 5 =
+   <|pco := SOME <|label := Address (Reg64 0w); index := 4|>;
+     pi := prog;
+     environ :=
+       (λc.
+          if "arm8_state_PC" = c then (Reg Bit64,Int (Reg64 4w))
+          else if "R1" = c then (Reg Bit64,Int (Reg64 1w))
+          else if "tmp_R1" = c then (Reg Bit64,Int (Reg64 (s.REG 1w)))
+          else if "tmp_arm8_state_PC" = c then
+            (Reg Bit64,Int (Reg64 0w))
+          else env c); termcode := Unknown; debug := d1;
+     execs := e1 + 1 + 1 + 1 + 1|> 1 =
  bs1) ⇒
 (bs1.environ "" = (NoType,Unknown)) ∧
 (bs1.environ "R0" = (Reg Bit64,Int (Reg64 (s1.REG 0w)))) ∧
@@ -652,7 +781,7 @@ val curr_goal = ``
 
 (* 0000000000000000 <internal_mul>: *)
 (*    0:   d10103ff        sub     sp, sp, #0x40 *)
-tc_one_instruction2_by_bin "d10103ff";
+tc_one_instruction2_by_bin "d10103ff" ``0w:word64``;
 (*    4:   f9000fe0        str     x0, [sp,#24] *)
 tc_one_instruction2_by_bin "f9000fe0";
 (*    8:   f9000be1        str     x1, [sp,#16] *)
