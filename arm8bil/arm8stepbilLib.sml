@@ -372,8 +372,9 @@ fun tc_stmt_arm8_hex instr =
             val (assign, certs) = list_split certify_assignments;
 	    val (tmp_assign, tmp_certs) = bil_backup_arm8_vars_tmp ``bs:stepstate`` (supported_accesses a8sch);
             val stmts = eval (List.foldl (fn (a,b) => ``^b ++ [^a]``) ``[]:bil_stmt_t list`` (List.concat [tmp_assign, assign]));
+          val stmts = eval stmts
           in
-            (eval stmts, List.concat [tmp_certs, certs], arm8thl)
+            (stmts, List.concat [tmp_certs, certs], arm8thl)
           end
       | _    => (``[]``, [], [])
   end
