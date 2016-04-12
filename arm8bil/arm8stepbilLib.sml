@@ -1,4 +1,4 @@
-structure arm8stepbilLib :> arm8stepLib =
+structure arm8stepbilLib :> arm8stepbilLib =
 struct
 
 open HolKernel boolLib bossLib Parse;
