@@ -89,40 +89,46 @@ fun PROCESS_ONE_ASSIGNMENT certs n =
 	THEN (FULL_SIMP_TAC (srw_ss()) [bool_cast_simpl2_tm])
     end;
 
+val sim_invariant_def = Define `sim_invariant s env =
+   (env "" = (NoType,Unknown)) ∧
+   (env "R0" = (Reg Bit64,Int (Reg64 (s.REG 0w)))) ∧
+   (env "R1" = (Reg Bit64,Int (Reg64 (s.REG 1w)))) ∧
+   (env "R2" = (Reg Bit64,Int (Reg64 (s.REG 2w)))) ∧
+   (env "R3" = (Reg Bit64,Int (Reg64 (s.REG 3w)))) ∧
+   (env "R30" = (Reg Bit64,Int (Reg64 (s.REG 30w)))) ∧
+   (env "ProcState_C" = (Reg Bit1,Int (bool2b s.PSTATE.C))) ∧
+   (env "ProcState_N" = (Reg Bit1,Int (bool2b s.PSTATE.N))) ∧
+   (env "ProcState_V" = (Reg Bit1,Int (bool2b s.PSTATE.V))) ∧
+   (env "ProcState_Z" = (Reg Bit1,Int (bool2b s.PSTATE.Z))) ∧
+   (env "arm8_state_PC" = (Reg Bit64,Int (Reg64 s.PC))) ∧
+   (env "arm8_state_SP_EL0" = (Reg Bit64,Int (Reg64 s.SP_EL0))) ∧
+   (∃v. env "tmp_R0" = (Reg Bit64,Int (Reg64 v))) ∧
+   (∃v. env "tmp_R1" = (Reg Bit64,Int (Reg64 v))) ∧
+   (∃v. env "tmp_R2" = (Reg Bit64,Int (Reg64 v))) ∧
+   (∃v. env "tmp_R3" = (Reg Bit64,Int (Reg64 v))) ∧
+   (∃v. env "tmp_R30" = (Reg Bit64,Int (Reg64 v))) ∧
+   (∃v. env "tmp_ProcState_C" = (Reg Bit1,Int (Reg1 v))) ∧
+   (∃v. env "tmp_ProcState_N" = (Reg Bit1,Int (Reg1 v))) ∧
+   (∃v. env "tmp_ProcState_V" = (Reg Bit1,Int (Reg1 v))) ∧
+   (∃v. env "tmp_ProcState_Z" = (Reg Bit1,Int (Reg1 v))) ∧
+   (∃v. env "tmp_arm8_state_PC" = (Reg Bit64,Int (Reg64 v))) ∧
+   (∃v. env "tmp_arm8_state_SP_EL0" = (Reg Bit64,Int (Reg64 v))) ∧
+   (∃m.
+      (env "arm8_state_MEM" = (MemByte Bit64,Mem Bit64 m)) ∧
+      ∀a. m (Reg64 a) = Reg8 (s.MEM a)) /\
+   ¬s.SCTLR_EL1.E0E ∧ (s.PSTATE.EL = 0w) ∧ (s.exception = NoException) /\
+   (Aligned (s.SP_EL0,8)) /\
+   ¬s.SCTLR_EL1.SA0
+      `;
+
 fun tc_gen_goal p certs step pc_value =
       let val goal = ``
         (^(list_mk_conj (hyp step))) ==>
         (s.PC = ^pc_value) ==>
-        (
-         (env "" = (NoType,Unknown)) /\
-         ((env "R0") = (Reg Bit64, Int (Reg64 (s.REG 0w)))) /\
-         ((env "R1") = (Reg Bit64, Int (Reg64 (s.REG 1w)))) /\
-         ((env "R2") = (Reg Bit64, Int (Reg64 (s.REG 2w)))) /\
-         ((env "R3") = (Reg Bit64, Int (Reg64 (s.REG 3w)))) /\
-         ((env "R30") = (Reg Bit64, Int (Reg64 (s.REG 30w)))) /\
-         ((env "ProcState_C") = (Reg Bit1, Int (bool2b s.PSTATE.C))) /\
-         ((env "ProcState_N") = (Reg Bit1, Int (bool2b s.PSTATE.N))) /\
-         ((env "ProcState_V") = (Reg Bit1, Int (bool2b s.PSTATE.V))) /\
-         ((env "ProcState_Z") = (Reg Bit1, Int (bool2b s.PSTATE.Z))) /\
-         ((env "arm8_state_PC") = (Reg Bit64, Int (Reg64 (s.PC)))) /\
-         ((env "arm8_state_SP_EL0") = (Reg Bit64, Int (Reg64 (s.SP_EL0)))) /\
-         (?v.((env "tmp_R0") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?v.((env "tmp_R1") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?v.((env "tmp_R2") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?v.((env "tmp_R3") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?v.((env "tmp_R30") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?v.((env "tmp_ProcState_C") = (Reg Bit1, Int (Reg1 (v))))) /\
-         (?v.((env "tmp_ProcState_N") = (Reg Bit1, Int (Reg1 (v))))) /\
-         (?v.((env "tmp_ProcState_V") = (Reg Bit1, Int (Reg1 (v))))) /\
-         (?v.((env "tmp_ProcState_Z") = (Reg Bit1, Int (Reg1 (v))))) /\
-         (?v.((env "tmp_arm8_state_PC") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?v.((env "tmp_arm8_state_SP_EL0") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?m. (env "arm8_state_MEM" = (MemByte Bit64,Mem Bit64 m)) /\
-   	      (!a. m (Reg64 a) = Reg8 (s.MEM a))) /\
-         (?n. ((INDEX_FIND 0 (\(x:bil_block_t). x.label = (Address (Reg64 (s.PC)))) prog) =
+        (sim_invariant s env) ==>
+       (?n. ((INDEX_FIND 0 (\(x:bil_block_t). x.label = (Address (Reg64 (s.PC)))) prog) =
                SOME(n, <| label:= (Address (Reg64 (s.PC)));
-                  statements:= ^p|>)))
-        ) ==>
+                  statements:= ^p|>))) ==>
         (NextStateARM8 s = SOME s1) ==>
         (bil_exec_step_n <|
           pco:= SOME <| label:= (Address (Reg64 (s.PC))); index:= 0 |>;
@@ -132,39 +138,16 @@ fun tc_gen_goal p certs step pc_value =
           execs:=e1;
           pi:=prog
           |> ^(numSyntax.term_of_int ((List.length certs)+1)) = bs1) ==>
-        (
-         (bs1.environ "" = (NoType,Unknown)) /\
-         ((bs1.environ "R0") = (Reg Bit64, Int (Reg64 (s1.REG 0w)))) /\
-         ((bs1.environ "R1") = (Reg Bit64, Int (Reg64 (s1.REG 1w)))) /\
-         ((bs1.environ "R2") = (Reg Bit64, Int (Reg64 (s1.REG 2w)))) /\
-         ((bs1.environ "R3") = (Reg Bit64, Int (Reg64 (s1.REG 3w)))) /\
-         ((bs1.environ "R30") = (Reg Bit64, Int (Reg64 (s1.REG 30w)))) /\
-         ((bs1.environ "ProcState_C") = (Reg Bit1, Int (bool2b s1.PSTATE.C))) /\
-         ((bs1.environ "ProcState_N") = (Reg Bit1, Int (bool2b s1.PSTATE.N))) /\
-         ((bs1.environ "ProcState_V") = (Reg Bit1, Int (bool2b s1.PSTATE.V))) /\
-         ((bs1.environ "ProcState_Z") = (Reg Bit1, Int (bool2b s1.PSTATE.Z))) /\
-         ((bs1.environ "arm8_state_PC") = (Reg Bit64, Int (Reg64 (s1.PC)))) /\
-         ((bs1.environ "arm8_state_SP_EL0") = (Reg Bit64, Int (Reg64 (s1.SP_EL0)))) /\
-         (?v.((bs1.environ "tmp_R0") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?v.((bs1.environ "tmp_R1") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?v.((bs1.environ "tmp_R2") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?v.((bs1.environ "tmp_R3") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?v.((bs1.environ "tmp_R30") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?v.((bs1.environ "tmp_ProcState_C") = (Reg Bit1, Int (Reg1 (v))))) /\
-         (?v.((bs1.environ "tmp_ProcState_N") = (Reg Bit1, Int (Reg1 (v))))) /\
-         (?v.((bs1.environ "tmp_ProcState_V") = (Reg Bit1, Int (Reg1 (v))))) /\
-         (?v.((bs1.environ "tmp_ProcState_Z") = (Reg Bit1, Int (Reg1 (v))))) /\
-         (?v.((bs1.environ "tmp_arm8_state_PC") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?v.((bs1.environ "tmp_arm8_state_SP_EL0") = (Reg Bit64, Int (Reg64 (v))))) /\
-         (?m. (bs1.environ "arm8_state_MEM" = (MemByte Bit64,Mem Bit64 m)) /\
-	      (!a. m (Reg64 a) = Reg8 (s1.MEM a)))
-        )``
+        (sim_invariant s1 bs1.environ)
+        ``
       in
 	  goal
       end;
 
 (* prevent >>>~ to become >>> *)
+HOL_Interactive.toggle_quietdec();
 val myss = simpLib.remove_ssfrags (srw_ss()) ["word shift"];
+HOL_Interactive.toggle_quietdec();
 
 fun tc_one_instruction inst =
     let val code = arm8AssemblerLib.arm8_code inst;
@@ -590,6 +573,11 @@ end
 
 
 
+fun does_match tm pat =
+    let val _ = match_term pat tm in true end
+    handle _ => false;
+
+val align_conversion_thm = prove(``!x y. Aligned(x,y) = ((x && ((n2w y) - 1w)) = 0w:word64)``, cheat);
 
 fun tc_one_instruction2_by_bin instr pc_value =
     let val (p, certs, [step]) = tc_stmt_arm8_hex instr;
@@ -598,7 +586,8 @@ fun tc_one_instruction2_by_bin instr pc_value =
   val p = listSyntax.mk_list(sts,sts_ty);
 	val goal = tc_gen_goal p certs step pc_value;
 	val thm = prove(``^goal``,
-			(DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)
+      (REWRITE_TAC [sim_invariant_def])
+			THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)
 		        THEN (FULL_SIMP_TAC (srw_ss()) [])
 			(* for every instruction, plus 1 since the fixed jump has no certificate *)
 			THEN (MAP_EVERY (ONE_EXEC_MAIN certs p pc_value) (List.tabulate ((List.length certs) + 1, fn x => x+1)))
@@ -609,7 +598,16 @@ fun tc_one_instruction2_by_bin instr pc_value =
 			THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [ASSUME ``s.PC=^pc_value``] (DISCH_ALL step))))
 			THEN (FULL_SIMP_TAC (srw_ss()) [])
 			THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def, bool2b_def])
-		       );
+      (* other part of the invariant: basically show that the code does not mess up with other stuff *)
+      THEN (fn (asl,g) =>
+        if (does_match g ``Aligned(x,y)``) then
+             ((REPEAT (PAT_ASSUM ``Aligned(x,y)`` (fn thm=> (ASSUME_TAC thm) THEN (UNDISCH_TAC (concl thm)))))
+              THEN (REWRITE_TAC [align_conversion_thm])
+              THEN (blastLib.BBLAST_TAC))
+              (asl,g)
+        else ALL_TAC(asl,g)
+      )
+    );
     in
 	thm
     end;

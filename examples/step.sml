@@ -42,9 +42,7 @@ tc_one_instruction `STR X1, [X0]`;
 tc_one_instruction2 `STR X1, [X0]`;
 
 tc_one_instruction `ADDS X0, X1, X0`;
-tc_one_instruction2 `ADDS X0, X1, X0`;
-
-
+tc_one_instruction2 `ADDS X0, X1, X0` ``0w:word64``;
 
 
 
@@ -53,42 +51,51 @@ tc_one_instruction2 `ADDS X0, X1, X0`;
 
 (*   2c:   7900001f        strh    wzr, [x0] *)
 val inst = `MOV X1, #1`;
-val instr = "d10103ff";
 val code = arm8AssemblerLib.arm8_code `MOV X1, #1`;
 val instr = (hd code);
+val instr = "d10103ff";
 val pc_value = ``0w:word64``;
 (* 2.11 seconds *)
-val (p, certs, [step]) = tc_stmt_arm8_hex instr;
-val (sts, sts_ty) = listSyntax.dest_list p;
-val sts = List.concat [sts, [``Jmp (Const (Reg64 (^pc_value+4w)))``]];
-val p = listSyntax.mk_list(sts,sts_ty);
-val goal = tc_gen_goal p certs step pc_value;
+ val (p, certs, [step]) = tc_stmt_arm8_hex instr;
+  val (sts, sts_ty) = listSyntax.dest_list p;
+  val sts = List.concat [sts, [``Jmp (Const (Reg64 (^pc_value+4w)))``]];
+  val p = listSyntax.mk_list(sts,sts_ty);
+	val goal = tc_gen_goal p certs step pc_value;
+	val thm = prove(``^goal``,
+      (REWRITE_TAC [sim_invariant_def])
+			THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)
+		        THEN (FULL_SIMP_TAC (srw_ss()) [])
+			(* for every instruction, plus 1 since the fixed jump has no certificate *)
+			THEN (MAP_EVERY (ONE_EXEC_MAIN certs p pc_value) (List.tabulate ((List.length certs) + 1, fn x => x+1)))
+			(* Computation completed *)
+			THEN (FULL_SIMP_TAC (srw_ss()) [Once bil_exec_step_n_def])
+			THEN DISCH_TAC
+			(* use the step theorem *)
+			THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [ASSUME ``s.PC=^pc_value``] (DISCH_ALL step))))
+			THEN (FULL_SIMP_TAC (srw_ss()) [])
+			THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def, bool2b_def])
+      (* other part of the invariant: basically show that the code does not mess up with other stuff *)
+      THEN (fn (asl,g) =>
+        if (does_match g ``Aligned(x,y)``) then
+             ((REPEAT (PAT_ASSUM ``Aligned(x,y)`` (fn thm=> (ASSUME_TAC thm) THEN (UNDISCH_TAC (concl thm)))))
+              THEN (REWRITE_TAC [align_conversion_thm])
+              THEN (blastLib.BBLAST_TAC))
+              (asl,g)
+        else (FAIL_TAC "Unproved")(asl,g)
+      )
 
-prove(``^goal``,
- (* first processing 0.6s *)
-      (DISCH_TAC) 
-	  THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)
-	  THEN (FULL_SIMP_TAC (srw_ss()) [])
-    
-THEN (ONE_EXEC_MAIN certs p pc_value 1)
-THEN (ONE_EXEC_MAIN certs p pc_value 2)
-THEN (ONE_EXEC_MAIN certs p pc_value 3)
-THEN (ONE_EXEC_MAIN certs p pc_value 4)
-THEN (ONE_EXEC_MAIN certs p pc_value 5)
+    );
+    in
+	thm
+    end;
 
 
-(* THEN (ONE_EXEC2 certs 5) *)
+      THEN (ONE_EXEC_MAIN certs p pc_value 1)
+      THEN (ONE_EXEC_MAIN certs p pc_value 2)
+      THEN (ONE_EXEC_MAIN certs p pc_value 3)
+      THEN (ONE_EXEC_MAIN certs p pc_value 4)
+      THEN (ONE_EXEC_MAIN certs p pc_value 5)
 
-(* Computation completed *)
-THEN (FULL_SIMP_TAC (srw_ss()) [Once bil_exec_step_n_def])
-THEN DISCH_TAC
-
-(* use the step theorem *)
-THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [ASSUME ``s.PC=0w``] (DISCH_ALL step))))
-THEN (FULL_SIMP_TAC (srw_ss()) [])
-
-THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def, bool2b_def])
-);
 
 
 val i = 5;
@@ -150,7 +157,7 @@ tc_one_instruction2_by_bin "f90007e2";
 (*   10:   b90007e3        str     w3, [sp,#4] *)
 tc_one_instruction2_by_bin "b90007e3";
 (*   14:   b9003bff        str     wzr, [sp,#56] *)
-tc_one_instruction2_by_bin "b9003bff";
+tc_one_instruction2_by_bin "b9003bff" ``8w:word64``;
 (*   18:   14000009        b       3c <internal_mul+0x3c> *)
 tc_one_instruction2_by_bin "14000009" ``8w:word64``;;
 (*   1c:   b9803be0        ldrsw   x0, [sp,#56] *)
@@ -334,30 +341,125 @@ tc_one_instruction2_by_bin "d65f03c0";
 
 
 
+fun PAT_UNDISCH pat thm =
+    List.foldl (fn (tm,thm) =>
+         (let val _ =  match_term pat tm in thm end)
+         handle _ => (DISCH tm thm))
+    (UNDISCH_ALL thm) ((hyp o UNDISCH_ALL) thm);
+
+fun normalize_thm thm = 
+    (* fix the invariant: *)
+    let (* First step: reorder the assumptions so we have pc=v as first *)
+        (* and the we use that to simplify the statement *)
+        val th1_1 = PAT_UNDISCH ``s.PC = v`` thm;
+        val pc_value = (List.hd (hyp th1_1));
+        (* I do not rewrite the pc in bil_exec_step_n *)
+        val th1_1 = PAT_UNDISCH ``(bil_exec_step_n a b) = c`` thm;
+        val th1_2 = REWRITE_RULE [ASSUME pc_value] th1_1;
+        val th1_3 = DISCH_ALL th1_2;
+        (* Check that the pc is aligned *)
+        val th_tmp = prove (``Aligned (^((snd o dest_eq) pc_value),4)``, SIMP_TAC (srw_ss()) [Aligned_def, Align_def]);
+        val th1_4 = SIMP_RULE (srw_ss()) [th_tmp] th1_3;
+    in  
+        th1_4
+    end;
+
+fun get_term_from_ass_path pat thm =
+    let val th1_1 = PAT_UNDISCH pat thm;
+    in (List.hd (hyp th1_1))
+    end;
+
+fun extract_code thm =
+    let val hs = ((hyp o UNDISCH_ALL) thm)
+        val ex = List.filter (fn tm => is_exists tm) hs
+    in List.hd ex end;
+        
 
 
-(*   20:   d37ff800        lsl     x0, x0, #1 *)
-val [t] = arm8_step_hex "d37ff800";
-val instr = "d37ff800";
+fun extract_side_cond thm = 
+    let val th1 =  List.foldl (fn (tm,thm) =>
+            (let val cs = strip_conj tm in
+                if List.exists (fn tm1 => tm1 = ``(s.exception = NoException)``) cs then thm
+                else (DISCH tm thm)
+            end)
+             handle _ => (DISCH tm thm))
+          (UNDISCH_ALL thm) ((hyp o UNDISCH_ALL) thm);
+    in List.hd (hyp th1) end;
+    
+fun extract_mem_cnd tm =
+ list_mk_conj (List.filter (fn tm =>
+    let val _ = match_term ``s.MEM a = v`` tm in true end
+    handle _ => false) (strip_conj tm));
+
+fun extract_other_cnd tm =
+ let val other = (List.filter (fn tm =>
+    let val _ = match_term ``s.MEM a = v`` tm in false end
+    handle _ =>
+      if tm = ``¬s.SCTLR_EL1.E0E`` orelse tm = ``(s.PSTATE.EL = 0w)`` orelse tm = ``(s.exception = NoException)`` then false
+      else true
+ ) (strip_conj tm))
+ in if other = [] then ``T`` else list_mk_conj other end;
 
 
-val ass_some = (List.filter (fn tm =>
-    (is_eq tm) andalso ((optionLib.is_some o snd o dest_eq) tm) andalso ((optionLib.is_some o snd o dest_eq) tm)
-) (hyp t));
-val ass_some = List.map (SIMP_CONV (srw_ss()) []) ass_some;
-val t1 = List.foldl (fn (thm, main_thm) => (DISCH ((fst o dest_eq o concl) thm) main_thm)) t ass_some;
-val t2 = REWRITE_RULE ass_some t1;
-val [t3] = IMP_CANON t2;
-val t4 = UNDISCH_ALL t3;
-val t5 = SIMP_RULE (bool_ss) [] t4;
+(*    0:   d10103ff        sub     sp, sp, #0x40 *)
+val main1 = tc_one_instruction2_by_bin "d10103ff" ``0w:word64``;
+(*    4:   f9000fe0        str     x0, [sp,#24] *)
+val main2 = tc_one_instruction2_by_bin "f9000fe0" ``4w:word64``;
 
-val ass_const = (List.filter (fn tm =>
-    (is_eq tm) andalso ((wordsSyntax.is_n2w o fst o dest_eq) tm)
-) (hyp t5));
-val ass_const = List.map (SYM o ASSUME) ass_const;
-val t6 = REWRITE_RULE ass_const t5;
+val t11 = normalize_thm main1;
+val t12 = normalize_thm main2;
 
-val upds = ((extract_arm8_changes o optionSyntax.dest_some o snd o dest_comb o concl) t6);
-val exp = snd(List.nth(upds, 1));
-tc_exp_arm8 exp;
+val goal = ``
+(sim_invariant s env) ==>
+(NextStateARM8 s = SOME s1) ==>
+(^(get_term_from_ass_path ``s.PC = v`` t11) \/ ^(get_term_from_ass_path ``s.PC = v`` t12)) ==>
+^(extract_code t11) ==>
+^(extract_mem_cnd (extract_side_cond t11)) ==>
+^(extract_code t12) ==>
+^(extract_mem_cnd (extract_side_cond t12)) ==>
+?k. (
+(bil_exec_step_n
+      <|pco := SOME <|label := Address (Reg64 s.PC); index := 0|>;
+        pi := prog; environ := env; termcode := Unknown; debug := d1;
+        execs := e1|> k =
+    bs1) ==>
+sim_invariant s1 bs1.environ
+)``;
+
+prove (``^goal``,
+      (REPEAT DISCH_TAC)
+      THEN (Cases_on `s.PC = 0w`)
+      THENL [
+            (* substitute the value of the PC *)
+            (FULL_SIMP_TAC (srw_ss()) [])
+            THEN (EXISTS_TAC ``5:num``)
+            THEN (DISCH_TAC)
+            THEN (`^(extract_other_cnd (extract_side_cond t11))` by (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def]))
+            THEN (FULL_SIMP_TAC (srw_ss()) [])
+            THEN (ASSUME_TAC t11)
+            THEN (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def]),
+            ALL_TAC
+      ]
+      (* substitute the value of the PC *)
+      THEN (FULL_SIMP_TAC (srw_ss()) [])
+      THEN (EXISTS_TAC ``6:num``)
+      THEN (DISCH_TAC)
+
+      THEN (`^(extract_other_cnd (extract_side_cond t12))` by (
+           (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def]))
+           THEN (RW_TAC (srw_ss()) [])
+           (* this is a copy paste *)
+           THEN (fn (asl,g) =>
+             if (does_match g ``Aligned(x,y)``) then
+                  ((REPEAT (PAT_ASSUM ``Aligned(x,y)`` (fn thm=> (ASSUME_TAC thm) THEN (UNDISCH_TAC (concl thm)))))
+                   THEN (REWRITE_TAC [align_conversion_thm])
+                   THEN (blastLib.BBLAST_TAC))
+                   (asl,g)
+             else (ALL_TAC)(asl,g)
+           )
+      )
+
+      THEN (ASSUME_TAC t12)
+      THEN (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def])
+);
 
