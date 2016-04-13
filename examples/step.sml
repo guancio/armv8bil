@@ -395,7 +395,9 @@ fun extract_other_cnd tm =
  let val other = (List.filter (fn tm =>
     let val _ = match_term ``s.MEM a = v`` tm in false end
     handle _ =>
-      if tm = ``¬s.SCTLR_EL1.E0E`` orelse tm = ``(s.PSTATE.EL = 0w)`` orelse tm = ``(s.exception = NoException)`` then false
+      if       tm = ``¬s.SCTLR_EL1.E0E`` orelse tm = ``(s.PSTATE.EL = 0w)``
+        orelse tm = ``(s.exception = NoException)`` orelse tm = ``¬s.SCTLR_EL1.SA0``
+      then false
       else true
  ) (strip_conj tm))
  in if other = [] then ``T`` else list_mk_conj other end;
@@ -405,9 +407,133 @@ fun extract_other_cnd tm =
 val main1 = tc_one_instruction2_by_bin "d10103ff" ``0w:word64``;
 (*    4:   f9000fe0        str     x0, [sp,#24] *)
 val main2 = tc_one_instruction2_by_bin "f9000fe0" ``4w:word64``;
+val main3 = tc_one_instruction2_by_bin "f9000be1" ``8w:word64``;
 
 val t11 = normalize_thm main1;
 val t12 = normalize_thm main2;
+val t13 = normalize_thm main3;
+
+val thms = [main1, main2, main3];
+val thms_norm = List.map normalize_thm thms;
+
+val goal = ``
+(sim_invariant s env) /\
+(NextStateARM8 s = SOME s1)
+``;
+
+val cnd_PC = List.foldl (fn (thm,cnd) => ``^cnd \/ ^(get_term_from_ass_path ``s.PC = v`` thm)``) ``F`` thms_norm;
+val cnd_PC = (snd o dest_eq o concl) (SIMP_CONV (srw_ss()) [] cnd_PC);
+val goal = ``^goal /\ ^cnd_PC``;
+
+val goal = List.foldl (fn (thm,cnd) =>
+       ``^cnd /\ ^(extract_code thm) /\ ^(extract_mem_cnd (extract_side_cond thm))``) goal thms_norm;
+
+val goal = ``^goal ==>
+?k. (
+(bil_exec_step_n
+      <|pco := SOME <|label := Address (Reg64 s.PC); index := 0|>;
+        pi := prog; environ := env; termcode := Unknown; debug := d1;
+        execs := e1|> k =
+    bs1) ==>
+sim_invariant s1 bs1.environ
+)``;
+
+
+
+prove (``^goal``,
+      (REPEAT STRIP_TAC)
+      (* One case for each value of the PC *)
+      THENL [
+        fn (asl,goal) => (
+        let val thm = (List.nth(thms_norm, 0)) in
+            (FULL_SIMP_TAC (srw_ss()) [])
+            THEN (EXISTS_TAC (
+                 List.nth((snd o strip_comb o fst o dest_eq)
+                          (get_term_from_ass_path ``a = bs1:stepstate`` thm),
+                          1)
+            ))
+            THEN (SUBGOAL_THEN (extract_other_cnd (extract_side_cond thm))
+                 (fn thm => ASSUME_TAC thm))
+            THENL [(REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def])
+                 THEN (RW_TAC (srw_ss()) [])
+                 (* this is a copy paste *)
+                 THEN (fn (asl,g) =>
+                   if (does_match g ``Aligned(x,y)``) then
+                        ((REPEAT (PAT_ASSUM ``Aligned(x,y)`` (fn thm=> (ASSUME_TAC thm) THEN (UNDISCH_TAC (concl thm)))))
+                         THEN (REWRITE_TAC [align_conversion_thm])
+                         THEN (blastLib.BBLAST_TAC))
+                         (asl,g)
+                   else (ALL_TAC)(asl,g)
+                 ),
+                 ALL_TAC
+            ]
+            THEN (ASSUME_TAC thm)
+            THEN (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def])
+         end
+         )(asl,goal)
+
+         ,
+        fn (asl,goal) => (
+        let val thm = (List.nth(thms_norm, 1)) in
+            (FULL_SIMP_TAC (srw_ss()) [])
+            THEN (EXISTS_TAC (
+                 List.nth((snd o strip_comb o fst o dest_eq)
+                          (get_term_from_ass_path ``a = bs1:stepstate`` thm),
+                          1)
+            ))
+            THEN (SUBGOAL_THEN (extract_other_cnd (extract_side_cond thm))
+                 (fn thm => ASSUME_TAC thm))
+            THENL [(REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def])
+                 THEN (RW_TAC (srw_ss()) [])
+                 (* this is a copy paste *)
+                 THEN (fn (asl,g) =>
+                   if (does_match g ``Aligned(x,y)``) then
+                        ((REPEAT (PAT_ASSUM ``Aligned(x,y)`` (fn thm=> (ASSUME_TAC thm) THEN (UNDISCH_TAC (concl thm)))))
+                         THEN (REWRITE_TAC [align_conversion_thm])
+                         THEN (blastLib.BBLAST_TAC))
+                         (asl,g)
+                   else (ALL_TAC)(asl,g)
+                 ),
+                 ALL_TAC
+            ]
+            THEN (ASSUME_TAC thm)
+            THEN (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def])
+         end
+         )(asl,goal)
+
+         ,
+        fn (asl,goal) => (
+        let val thm = (List.nth(thms_norm, 2)) in
+            (FULL_SIMP_TAC (srw_ss()) [])
+            THEN (EXISTS_TAC (
+                 List.nth((snd o strip_comb o fst o dest_eq)
+                          (get_term_from_ass_path ``a = bs1:stepstate`` thm),
+                          1)
+            ))
+            THEN (SUBGOAL_THEN (extract_other_cnd (extract_side_cond thm))
+                 (fn thm => ASSUME_TAC thm))
+            THENL [(REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def])
+                 THEN (RW_TAC (srw_ss()) [])
+                 (* this is a copy paste *)
+                 THEN (fn (asl,g) =>
+                   if (does_match g ``Aligned(x,y)``) then
+                        ((REPEAT (PAT_ASSUM ``Aligned(x,y)`` (fn thm=> (ASSUME_TAC thm) THEN (UNDISCH_TAC (concl thm)))))
+                         THEN (REWRITE_TAC [align_conversion_thm])
+                         THEN (blastLib.BBLAST_TAC))
+                         (asl,g)
+                   else (ALL_TAC)(asl,g)
+                 ),
+                 ALL_TAC
+            ]
+            THEN (ASSUME_TAC thm)
+            THEN (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def])
+         end
+         )(asl,goal)
+
+      ]
+);
+
+
 
 val goal = ``
 (sim_invariant s env) ==>
@@ -425,41 +551,3 @@ val goal = ``
     bs1) ==>
 sim_invariant s1 bs1.environ
 )``;
-
-prove (``^goal``,
-      (REPEAT DISCH_TAC)
-      THEN (Cases_on `s.PC = 0w`)
-      THENL [
-            (* substitute the value of the PC *)
-            (FULL_SIMP_TAC (srw_ss()) [])
-            THEN (EXISTS_TAC ``5:num``)
-            THEN (DISCH_TAC)
-            THEN (`^(extract_other_cnd (extract_side_cond t11))` by (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def]))
-            THEN (FULL_SIMP_TAC (srw_ss()) [])
-            THEN (ASSUME_TAC t11)
-            THEN (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def]),
-            ALL_TAC
-      ]
-      (* substitute the value of the PC *)
-      THEN (FULL_SIMP_TAC (srw_ss()) [])
-      THEN (EXISTS_TAC ``6:num``)
-      THEN (DISCH_TAC)
-
-      THEN (`^(extract_other_cnd (extract_side_cond t12))` by (
-           (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def]))
-           THEN (RW_TAC (srw_ss()) [])
-           (* this is a copy paste *)
-           THEN (fn (asl,g) =>
-             if (does_match g ``Aligned(x,y)``) then
-                  ((REPEAT (PAT_ASSUM ``Aligned(x,y)`` (fn thm=> (ASSUME_TAC thm) THEN (UNDISCH_TAC (concl thm)))))
-                   THEN (REWRITE_TAC [align_conversion_thm])
-                   THEN (blastLib.BBLAST_TAC))
-                   (asl,g)
-             else (ALL_TAC)(asl,g)
-           )
-      )
-
-      THEN (ASSUME_TAC t12)
-      THEN (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def])
-);
-
