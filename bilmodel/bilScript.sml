@@ -1020,6 +1020,7 @@ val bil_exec_step_def = Define `bil_exec_step state = case state.pco of
 
 (* Multiple execution of step *)
 val bil_exec_step_n_def = Define `bil_exec_step_n state (n:num) =
+  if state.pco = NONE then state else
   if (n = 0)
     then state
     else bil_exec_step_n (bil_exec_step state) (n - 1)

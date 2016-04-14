@@ -121,7 +121,7 @@ val sim_invariant_def = Define `sim_invariant s env =
    ¬s.SCTLR_EL1.SA0
       `;
 
-fun tc_gen_goal p certs step pc_value =
+fun tc_gen_goal p certs step pc_value fault_wt_mem_cnd =
       let val goal = ``
         (^(list_mk_conj (hyp step))) ==>
         (s.PC = ^pc_value) ==>
@@ -138,22 +138,24 @@ fun tc_gen_goal p certs step pc_value =
           execs:=e1;
           pi:=prog
           |> ^(numSyntax.term_of_int ((List.length certs)+1)) = bs1) ==>
-        (sim_invariant s1 bs1.environ)
+        (((sim_invariant s1 bs1.environ) /\
+         (!a. ^fault_wt_mem_cnd a ==> (s.MEM a = s1.MEM a))) \/
+         (bs1.pco = NONE))
         ``
       in
 	  goal
       end;
 
 (* prevent >>>~ to become >>> *)
-HOL_Interactive.toggle_quietdec();
+(* HOL_Interactive.toggle_quietdec(); *)
 val myss = simpLib.remove_ssfrags (srw_ss()) ["word shift"];
-HOL_Interactive.toggle_quietdec();
+(* HOL_Interactive.toggle_quietdec(); *)
 
 fun tc_one_instruction inst =
     let val code = arm8AssemblerLib.arm8_code inst;
 	val instr = (hd code);
 	val (p, certs, [step]) = tc_stmt_arm8_hex instr;
-	val goal = tc_gen_goal p certs step ``0w:word64``;
+	val goal = tc_gen_goal p certs step ``0w:word64`` ``\x:word64.T``;
 	val thm = prove(``^goal``,
 			(DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)
 		        THEN (FULL_SIMP_TAC (srw_ss()) [])
@@ -360,10 +362,65 @@ val static_jmp_thm = prove( ``
 );
 
 
-
-
-
-
+val assert_step_thm = prove( ``
+!pc_value env past_steps e v lbl n l i.
+(lbl <> Label "") ==>
+(n > 0) ==>
+((EL i l) = (Assert e)) ==>
+((LENGTH l) > (i+1)) ==>
+(env "" = (NoType,Unknown)) ==>
+((bil_eval_exp e env) = Int (bool2b v)) ==>
+(?n. ((INDEX_FIND 0 (\(x:bil_block_t). x.label = lbl) prog) =
+			SOME(n, <| label:= (Address (Reg64 pc_value));
+				 statements:= l|>))
+) ==>
+((v ==>
+    (
+     (bil_exec_step_n
+       <|pco := SOME <|label := lbl; index := i|>;
+         pi := prog;
+         environ := env; termcode := Unknown; debug := d1; execs := past_steps|>
+       n) = 
+    (bil_exec_step_n
+       <|pco := SOME <|label := lbl; index := i + 1|>;
+         pi := prog;
+         environ := env; termcode := Unknown; debug := d1;
+         execs := past_steps + 1|> (n-1))
+    ))
+  /\
+  (~v ==>
+     ((bil_exec_step_n
+       <|pco := SOME <|label := lbl; index := i|>;
+         pi := prog;
+         environ := env; termcode := Unknown; debug := d1; execs := past_steps|>
+       n).pco = NONE))
+)
+``,
+       (REPEAT STRIP_TAC)
+       THENL [
+           (fn (asl,g) =>
+        let val rx = (snd o dest_eq) g in
+            (Q.ABBREV_TAC `s2=^rx`)(asl,g)
+        end)
+           THEN (SIMP_TAC (srw_ss()) [Once bil_exec_step_n_def])
+           THEN (FULL_SIMP_TAC (arith_ss) [])
+           THEN (FULL_SIMP_TAC (srw_ss()) [bil_exec_step_def, bil_get_program_block_info_by_label_def])
+           THEN (computeLib.RESTR_EVAL_TAC [``bil_eval_exp``, ``bil_exec_step_n``])
+           THEN (FULL_SIMP_TAC (srw_ss()) [bool_cast_simpl2_tm])
+           THEN (FULL_SIMP_TAC (arith_ss) [])
+           THEN (FULL_SIMP_TAC (srw_ss()) [combinTheory.UPDATE_def, Abbr `s2`])
+           THEN (computeLib.RESTR_EVAL_TAC [``bil_eval_exp``, ``bil_exec_step_n``]),
+           ALL_TAC]
+       THEN (SIMP_TAC (srw_ss()) [Once bil_exec_step_n_def])
+       THEN (FULL_SIMP_TAC (arith_ss) [])
+       THEN (FULL_SIMP_TAC (srw_ss()) [bil_exec_step_def, bil_get_program_block_info_by_label_def])
+       THEN (computeLib.RESTR_EVAL_TAC [``bil_eval_exp``, ``bil_exec_step_n``])
+       THEN (FULL_SIMP_TAC (srw_ss()) [bool_cast_simpl2_tm])
+       THEN (FULL_SIMP_TAC (arith_ss) [])
+       THEN (FULL_SIMP_TAC (srw_ss()) [combinTheory.UPDATE_def])
+       THEN (computeLib.RESTR_EVAL_TAC [``bil_eval_exp``, ``bil_exec_step_n``])
+       THEN (SIMP_TAC (srw_ss()) [Once bil_exec_step_n_def])
+);
 
 
 
@@ -556,6 +613,110 @@ end
 
 ;
 
+fun ONE_EXEC_ASSERT certs prog pc_value i =
+
+(fn (asl,curr_goal) =>
+let val exec_term = (fst o dest_eq o fst o dest_imp) curr_goal;
+    val (_, [state, steps]) = strip_comb exec_term;
+    val (_, [("pco", pco), _,  ("environ", env), tc, db, ("execs", ex)]) = TypeBase.dest_record state;
+    val lbl = (optionSyntax.dest_some) pco;
+    val (_, [("label", lbl), ("index", index)]) = TypeBase.dest_record lbl;
+    val sts = prog;
+    val (sts1, _) = listSyntax.dest_list sts;
+    val statement = List.nth(sts1, i-1);
+    val (operator, [exp]) = strip_comb statement;
+    val th_just = (List.nth (certs, i-1));
+    val th_just1 = SPEC env th_just;
+    val th_just2 = if is_forall (concl th_just1)
+		   then SPEC ``s:arm8_state`` th_just1
+		   else th_just1;
+    val th_just3 = (SIMP_RULE (srw_ss()) [combinTheory.UPDATE_def] th_just2);
+    (* For constant PC *)
+    val th_just3Bis = REWRITE_RULE [ASSUME ``s.PC = ^pc_value``] th_just3;
+    val th_just4 = (UNDISCH_ALL th_just3Bis);
+    val value = (hd o snd o strip_comb o hd o snd o strip_comb o snd o dest_eq o concl) th_just4;
+    val th1 = SPECL [pc_value, env, ex, exp, value, lbl, steps] assert_step_thm;
+    val th2 = (SPECL [sts, numSyntax.mk_numeral(Arbnum.fromInt (i-1))]) th1;
+    val lbl_not_empty_thm = prove(``^((fst o dest_imp o concl) th2)``, (FULL_SIMP_TAC (srw_ss()) []));
+    val length_minus_i_not_zero_thm = prove(``^((fst o dest_imp o snd o dest_imp o concl) th2)``, (FULL_SIMP_TAC (arith_ss) []));
+    (* val simp2 = (SIMP_RULE (srw_ss()) [] th2); *)
+    val hd_thm = prove (``(EL ^(numSyntax.mk_numeral(Arbnum.fromInt(i-1))) ^sts = Assert ^exp)``, (FULL_SIMP_TAC (srw_ss()) []));
+    val length_thm = prove (``(LENGTH ^sts > ^(numSyntax.mk_numeral(Arbnum.fromInt(i-1)))+1)``, (FULL_SIMP_TAC (srw_ss()) []));
+    val th3 = (MP (MP (MP (MP th2 lbl_not_empty_thm) length_minus_i_not_zero_thm) hd_thm) length_thm);
+    (* For constant PC *)
+    val th3Bis = REWRITE_RULE [ASSUME ``s.PC = ^pc_value``] th3;
+    val th4 = UNDISCH_ALL th3Bis;
+in
+    (
+     (* We prove the big theorem and we use it for the substitution *)
+     (SUBGOAL_THEN (concl th4) (fn thm =>
+         (ASSUME_TAC thm)
+         THEN (Q.ABBREV_TAC `assert_cnd = ^value`)
+         THEN (Cases_on `assert_cnd`)
+         THENL [
+            (FULL_SIMP_TAC (srw_ss()) []),
+            (FULL_SIMP_TAC (srw_ss()) [])
+       			THEN (RW_TAC (srw_ss()) [])
+            THEN (FULL_SIMP_TAC (srw_ss()) [])
+         ]
+     ))
+     THENL [
+          (fn (asl,goal) =>
+                (MAP_EVERY (fn tm => if List.exists (fn tm1 => tm1 = tm) asl
+                                     then ALL_TAC
+                                     (* This is probably a memory *)
+                                     else if (is_exists tm) then
+                                        (SUBGOAL_THEN tm (fn thm => ASSUME_TAC thm))
+                                         THENL [
+                                          (FULL_SIMP_TAC (srw_ss()) []),
+                                          ALL_TAC
+                                        ]
+                                     else ALL_TAC
+        	     ) (hyp th_just4)
+          )(asl,goal))
+          (* need to substitute the s.PC = 0 everywhere *)
+          (* THEN (REV_FULL_SIMP_TAC (bool_ss) []) *)
+          (* There is a problem with nested updates of the environment. *)
+          (* We can not use simp tac, but only rewrite *)
+          (* Also we should avoid to rempove the ipothesis itself *)
+          THEN (PAT_ASSUM ``s.PC=^pc_value`` (fn thm =>
+                   (RULE_ASSUM_TAC (REWRITE_RULE [thm]))
+                   THEN (ASSUME_TAC thm)))
+          THEN (ASSUME_TAC th_just4)
+          THEN (fn (asl,goal) =>
+               (MAP_EVERY (fn tm =>
+                              (* The hypotesis is in the assumptions *)
+                              if List.exists (fn tm1 => tm1 = tm) asl then ALL_TAC
+                              (* this is the assumption justified by the expression certificate *)
+                              else if tm = (concl th_just4) then ALL_TAC
+                              (* "tmp_arm8_state_PC" ≠ "" *)
+                              else if (is_neq tm) andalso ((snd o dest_eq o dest_neg) tm = ``""``) then
+                                   (ASSUME_TAC (prove(tm, FULL_SIMP_TAC (srw_ss()) [])))
+                              (* it is an existential quantifier, we try to solve this using the assumptions *)
+                              else if (is_exists tm) then
+                                   ((SUBGOAL_THEN tm (fn thm => ASSUME_TAC thm))
+                                    THENL [(FULL_SIMP_TAC (srw_ss()) [
+                                    					    bool_cast_simpl3_tm,
+                                                  bool_cast_simpl4_tm]), ALL_TAC])
+                              (* env" "" = (NoType,Unknown) *)
+                              else if (is_eq tm) andalso ((snd o dest_eq)tm = ``(NoType,Unknown)``) then
+                                   ((SUBGOAL_THEN tm (fn thm => ASSUME_TAC thm))
+                                    THENL [(FULL_SIMP_TAC (srw_ss()) []), ALL_TAC])
+                              else (print_term tm;
+                                    ALL_TAC))
+                    (hyp th4)
+          )(asl,goal))
+          THEN (ACCEPT_TAC th4)
+          ,
+          ALL_TAC]
+    )
+    (asl, curr_goal)
+end
+)
+
+;
+
+
 
 fun ONE_EXEC_MAIN certs prog pc_value i =
 
@@ -565,6 +726,7 @@ let  val (sts1, _) = listSyntax.dest_list prog;
      val (operation, _) = strip_comb statement;
 in
   if (operation = ``Assign``) then (ONE_EXEC2 certs prog pc_value i)
+  else if (operation = ``Assert``) then (ONE_EXEC_ASSERT certs prog pc_value i)
   else (ONE_EXEC_JMP certs prog pc_value i)
 end
 )(asl,curr_goal))
@@ -579,12 +741,37 @@ fun does_match tm pat =
 
 val align_conversion_thm = prove(``!x y. Aligned(x,y) = ((x && ((n2w y) - 1w)) = 0w:word64)``, cheat);
 
-fun tc_one_instruction2_by_bin instr pc_value =
+fun extract_upds byte_val upds =
+    if is_cond byte_val then
+      let val (cnd, v, others) = dest_cond byte_val;
+          val addr = (fst o dest_eq) cnd;
+      in addr::(extract_upds others upds) end
+    else upds;
+
+
+fun generate_assert step fault_wt_mem =
+  let val s1 = (optionSyntax.dest_some o snd o dest_eq o concl) step;
+      val byte_val = (snd o dest_eq o concl o EVAL) ``^s1.MEM(a)``;
+      val upds = extract_upds byte_val [];
+      val side_conds_wt_mem = List.map (fn tm=> (snd o dest_eq o concl o EVAL) ``~((^fault_wt_mem) ^tm)``) upds;
+  in if side_conds_wt_mem = [] then (false, [], [])
+     else
+      let val side_cond_wt_mem = list_mk_conj side_conds_wt_mem;
+          val (bexp_wt_assert, _,  cert_wt_assert) = tc_exp_arm8  side_cond_wt_mem;
+      in (true, [``Assert ^bexp_wt_assert``], [cert_wt_assert]) end
+  end;
+
+fun tc_one_instruction2_by_bin instr pc_value fault_wt_mem =
     let val (p, certs, [step]) = tc_stmt_arm8_hex instr;
   val (sts, sts_ty) = listSyntax.dest_list p;
+  (* manually add the memory fault *)
+  val (memory_check_needed, assert_stm, assert_cert) = generate_assert step fault_wt_mem;
+  val sts = List.concat [assert_stm, sts];
+  val certs = List.concat [assert_cert, certs];
+  (* manually add the final jump *)
   val sts = List.concat [sts, [``Jmp (Const (Reg64 (^pc_value+4w)))``]];
   val p = listSyntax.mk_list(sts,sts_ty);
-	val goal = tc_gen_goal p certs step pc_value;
+	val goal = tc_gen_goal p certs step pc_value fault_wt_mem;
 	val thm = prove(``^goal``,
       (REWRITE_TAC [sim_invariant_def])
 			THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)
@@ -597,6 +784,8 @@ fun tc_one_instruction2_by_bin instr pc_value =
 			(* use the step theorem *)
 			THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [ASSUME ``s.PC=^pc_value``] (DISCH_ALL step))))
 			THEN (FULL_SIMP_TAC (srw_ss()) [])
+      (* Manually abbreviate the memory condition *)
+      THEN (Q.ABBREV_TAC `mem_cond = ^((snd o dest_eq o concl o EVAL) ``∀a. (\x.x<+0x100000w:word64) a ⇒ (s.MEM a = s1.MEM a)``)`)
 			THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def, bool2b_def])
       (* other part of the invariant: basically show that the code does not mess up with other stuff *)
       THEN (fn (asl,g) =>
@@ -607,16 +796,20 @@ fun tc_one_instruction2_by_bin instr pc_value =
               (asl,g)
         else ALL_TAC(asl,g)
       )
+      (* now we manage the memory condition using the assumption of the assertion *)
+      THEN (UNABBREV_ALL_TAC)
+      THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def])
+      THEN (FULL_SIMP_TAC (srw_ss()) [])
     );
     in
 	thm
     end;
 
-fun tc_one_instruction2 inst pc_value =
+fun tc_one_instruction2 inst pc_value fault_wt_mem =
     let val code = arm8AssemblerLib.arm8_code inst ;
       	val instr = (hd code);
     in
-	tc_one_instruction2_by_bin instr pc_value
+	tc_one_instruction2_by_bin instr pc_value fault_wt_mem
     end;
 
 (* ------------------------------------------------------------------------- *)

@@ -46,21 +46,28 @@ tc_one_instruction2 `ADDS X0, X1, X0` ``0w:word64``;
 
 
 
-
-
-
 (*   2c:   7900001f        strh    wzr, [x0] *)
 val inst = `MOV X1, #1`;
 val code = arm8AssemblerLib.arm8_code `MOV X1, #1`;
 val instr = (hd code);
 val instr = "d10103ff";
+val instr = "f9000fe0";
+val instr = "f9000be1";
+
 val pc_value = ``0w:word64``;
 (* 2.11 seconds *)
- val (p, certs, [step]) = tc_stmt_arm8_hex instr;
+  val fault_wt_mem = ``\x.x<+0x100000w:word64``;
+  val (p, certs, [step]) = tc_stmt_arm8_hex instr;
   val (sts, sts_ty) = listSyntax.dest_list p;
+  (* manually add the memory fault *)
+  val (memory_check_needed, assert_stm, assert_cert) = generate_assert step fault_wt_mem;
+  val sts = List.concat [[``Assert ^bexp_wt_assert``], sts];
+  val certs = List.concat [[cert_wt_assert], certs];
+
+  (* manually add the final jump *)
   val sts = List.concat [sts, [``Jmp (Const (Reg64 (^pc_value+4w)))``]];
   val p = listSyntax.mk_list(sts,sts_ty);
-	val goal = tc_gen_goal p certs step pc_value;
+	val goal = tc_gen_goal p certs step pc_value fault_wt_mem;
 	val thm = prove(``^goal``,
       (REWRITE_TAC [sim_invariant_def])
 			THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)
@@ -73,7 +80,11 @@ val pc_value = ``0w:word64``;
 			(* use the step theorem *)
 			THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [ASSUME ``s.PC=^pc_value``] (DISCH_ALL step))))
 			THEN (FULL_SIMP_TAC (srw_ss()) [])
-			THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def, bool2b_def])
+
+      (* Manually abbreviate the memory condition *)
+      THEN (Q.ABBREV_TAC `mem_cond = ^((snd o dest_eq o concl o EVAL) ``∀a. (\x.x<+0x100000w:word64) a ⇒ (s.MEM a = s1.MEM a)``)`)
+
+      THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def, bool2b_def])
       (* other part of the invariant: basically show that the code does not mess up with other stuff *)
       THEN (fn (asl,g) =>
         if (does_match g ``Aligned(x,y)``) then
@@ -81,65 +92,67 @@ val pc_value = ``0w:word64``;
               THEN (REWRITE_TAC [align_conversion_thm])
               THEN (blastLib.BBLAST_TAC))
               (asl,g)
-        else (FAIL_TAC "Unproved")(asl,g)
+        else ALL_TAC(asl,g)
       )
-
+      (* now we manage the memory condition using the assumption of the assertion *)
+      THEN (UNABBREV_ALL_TAC)
+      THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def])
+      THEN (FULL_SIMP_TAC (srw_ss()) [])
     );
     in
 	thm
     end;
 
 
-      THEN (ONE_EXEC_MAIN certs p pc_value 1)
+      THEN (ONE_EXEC_ASSERT certs p pc_value 1)
+
       THEN (ONE_EXEC_MAIN certs p pc_value 2)
       THEN (ONE_EXEC_MAIN certs p pc_value 3)
       THEN (ONE_EXEC_MAIN certs p pc_value 4)
       THEN (ONE_EXEC_MAIN certs p pc_value 5)
+      
+      THEN (ONE_EXEC_MAIN certs p pc_value 6)
+      THEN (ONE_EXEC_MAIN certs p pc_value 7)
 
 
 
-val i = 5;
+val i = 1;
 val prog = p;
 val curr_goal = ``
 (bil_exec_step_n
-   <|pco := SOME <|label := Address (Reg64 0w); index := 4|>;
-     pi := prog;
-     environ :=
-       (λc.
-          if "arm8_state_PC" = c then (Reg Bit64,Int (Reg64 4w))
-          else if "R1" = c then (Reg Bit64,Int (Reg64 1w))
-          else if "tmp_R1" = c then (Reg Bit64,Int (Reg64 (s.REG 1w)))
-          else if "tmp_arm8_state_PC" = c then
-            (Reg Bit64,Int (Reg64 0w))
-          else env c); termcode := Unknown; debug := d1;
-     execs := e1 + 1 + 1 + 1 + 1|> 1 =
+   <|pco := SOME <|label := Address (Reg64 0w); index := 0|>;
+     pi := prog; environ := env; termcode := Unknown; debug := d1;
+     execs := e1|> 7 =
  bs1) ⇒
-(bs1.environ "" = (NoType,Unknown)) ∧
-(bs1.environ "R0" = (Reg Bit64,Int (Reg64 (s1.REG 0w)))) ∧
-(bs1.environ "R1" = (Reg Bit64,Int (Reg64 (s1.REG 1w)))) ∧
-(bs1.environ "R2" = (Reg Bit64,Int (Reg64 (s1.REG 2w)))) ∧
-(bs1.environ "R3" = (Reg Bit64,Int (Reg64 (s1.REG 3w)))) ∧
-(bs1.environ "R30" = (Reg Bit64,Int (Reg64 (s1.REG 30w)))) ∧
-(bs1.environ "ProcState_C" = (Reg Bit1,Int (bool2b s1.PSTATE.C))) ∧
-(bs1.environ "ProcState_N" = (Reg Bit1,Int (bool2b s1.PSTATE.N))) ∧
-(bs1.environ "ProcState_V" = (Reg Bit1,Int (bool2b s1.PSTATE.V))) ∧
-(bs1.environ "ProcState_Z" = (Reg Bit1,Int (bool2b s1.PSTATE.Z))) ∧
-(bs1.environ "arm8_state_PC" = (Reg Bit64,Int (Reg64 s1.PC))) ∧
-(bs1.environ "arm8_state_SP_EL0" = (Reg Bit64,Int (Reg64 s1.SP_EL0))) ∧
-(∃v. bs1.environ "tmp_R0" = (Reg Bit64,Int (Reg64 v))) ∧
-(∃v. bs1.environ "tmp_R1" = (Reg Bit64,Int (Reg64 v))) ∧
-(∃v. bs1.environ "tmp_R2" = (Reg Bit64,Int (Reg64 v))) ∧
-(∃v. bs1.environ "tmp_R3" = (Reg Bit64,Int (Reg64 v))) ∧
-(∃v. bs1.environ "tmp_R30" = (Reg Bit64,Int (Reg64 v))) ∧
-(∃v. bs1.environ "tmp_ProcState_C" = (Reg Bit1,Int (Reg1 v))) ∧
-(∃v. bs1.environ "tmp_ProcState_N" = (Reg Bit1,Int (Reg1 v))) ∧
-(∃v. bs1.environ "tmp_ProcState_V" = (Reg Bit1,Int (Reg1 v))) ∧
-(∃v. bs1.environ "tmp_ProcState_Z" = (Reg Bit1,Int (Reg1 v))) ∧
-(∃v. bs1.environ "tmp_arm8_state_PC" = (Reg Bit64,Int (Reg64 v))) ∧
-(∃v. bs1.environ "tmp_arm8_state_SP_EL0" = (Reg Bit64,Int (Reg64 v))) ∧
-∃m.
-  (bs1.environ "arm8_state_MEM" = (MemByte Bit64,Mem Bit64 m)) ∧
-  ∀a. m (Reg64 a) = Reg8 (s1.MEM a)
+((bs1.environ "" = (NoType,Unknown)) ∧
+ (bs1.environ "R0" = (Reg Bit64,Int (Reg64 (s1.REG 0w)))) ∧
+ (bs1.environ "R1" = (Reg Bit64,Int (Reg64 (s1.REG 1w)))) ∧
+ (bs1.environ "R2" = (Reg Bit64,Int (Reg64 (s1.REG 2w)))) ∧
+ (bs1.environ "R3" = (Reg Bit64,Int (Reg64 (s1.REG 3w)))) ∧
+ (bs1.environ "R30" = (Reg Bit64,Int (Reg64 (s1.REG 30w)))) ∧
+ (bs1.environ "ProcState_C" = (Reg Bit1,Int (bool2b s1.PSTATE.C))) ∧
+ (bs1.environ "ProcState_N" = (Reg Bit1,Int (bool2b s1.PSTATE.N))) ∧
+ (bs1.environ "ProcState_V" = (Reg Bit1,Int (bool2b s1.PSTATE.V))) ∧
+ (bs1.environ "ProcState_Z" = (Reg Bit1,Int (bool2b s1.PSTATE.Z))) ∧
+ (bs1.environ "arm8_state_PC" = (Reg Bit64,Int (Reg64 s1.PC))) ∧
+ (bs1.environ "arm8_state_SP_EL0" = (Reg Bit64,Int (Reg64 s1.SP_EL0))) ∧
+ (∃v. bs1.environ "tmp_R0" = (Reg Bit64,Int (Reg64 v))) ∧
+ (∃v. bs1.environ "tmp_R1" = (Reg Bit64,Int (Reg64 v))) ∧
+ (∃v. bs1.environ "tmp_R2" = (Reg Bit64,Int (Reg64 v))) ∧
+ (∃v. bs1.environ "tmp_R3" = (Reg Bit64,Int (Reg64 v))) ∧
+ (∃v. bs1.environ "tmp_R30" = (Reg Bit64,Int (Reg64 v))) ∧
+ (∃v. bs1.environ "tmp_ProcState_C" = (Reg Bit1,Int (Reg1 v))) ∧
+ (∃v. bs1.environ "tmp_ProcState_N" = (Reg Bit1,Int (Reg1 v))) ∧
+ (∃v. bs1.environ "tmp_ProcState_V" = (Reg Bit1,Int (Reg1 v))) ∧
+ (∃v. bs1.environ "tmp_ProcState_Z" = (Reg Bit1,Int (Reg1 v))) ∧
+ (∃v. bs1.environ "tmp_arm8_state_PC" = (Reg Bit64,Int (Reg64 v))) ∧
+ (∃v. bs1.environ "tmp_arm8_state_SP_EL0" = (Reg Bit64,Int (Reg64 v))) ∧
+ (∃m.
+    (bs1.environ "arm8_state_MEM" = (MemByte Bit64,Mem Bit64 m)) ∧
+    ∀a. m (Reg64 a) = Reg8 (s1.MEM a)) ∧ ¬s1.SCTLR_EL1.E0E ∧
+ (s1.PSTATE.EL = 0w) ∧ (s1.exception = NoException) ∧
+ Aligned (s1.SP_EL0,8) ∧ ¬s1.SCTLR_EL1.SA0) ∧
+(∀a. a <₊ 0x100000w ⇒ (s.MEM a = s1.MEM a)) ∨ (bs1.pco = NONE)
 ``;
 
 
@@ -404,10 +417,10 @@ fun extract_other_cnd tm =
 
 
 (*    0:   d10103ff        sub     sp, sp, #0x40 *)
-val main1 = tc_one_instruction2_by_bin "d10103ff" ``0w:word64``;
+val main1 = tc_one_instruction2_by_bin "d10103ff" ``0w:word64`` ``\x.x<+0x100000w:word64``;
 (*    4:   f9000fe0        str     x0, [sp,#24] *)
-val main2 = tc_one_instruction2_by_bin "f9000fe0" ``4w:word64``;
-val main3 = tc_one_instruction2_by_bin "f9000be1" ``8w:word64``;
+val main2 = tc_one_instruction2_by_bin "f9000fe0" ``4w:word64`` ``\x.x<+0x100000w:word64``;
+val main3 = tc_one_instruction2_by_bin "f9000be1" ``8w:word64`` ``\x.x<+0x100000w:word64``;
 
 val t11 = normalize_thm main1;
 val t12 = normalize_thm main2;
@@ -435,7 +448,7 @@ val goal = ``^goal ==>
         pi := prog; environ := env; termcode := Unknown; debug := d1;
         execs := e1|> k =
     bs1) ==>
-sim_invariant s1 bs1.environ
+((sim_invariant s1 bs1.environ) \/ (bs1.pco = NONE))
 )``;
 
 
@@ -467,6 +480,7 @@ prove (``^goal``,
                  ),
                  ALL_TAC
             ]
+            THEN (REPEAT DISCH_TAC)
             THEN (ASSUME_TAC thm)
             THEN (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def])
          end
@@ -496,6 +510,7 @@ prove (``^goal``,
                  ),
                  ALL_TAC
             ]
+            THEN (REPEAT DISCH_TAC)
             THEN (ASSUME_TAC thm)
             THEN (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def])
          end
@@ -525,6 +540,7 @@ prove (``^goal``,
                  ),
                  ALL_TAC
             ]
+            THEN (REPEAT DISCH_TAC)
             THEN (ASSUME_TAC thm)
             THEN (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def])
          end
