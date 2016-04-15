@@ -1,7 +1,14 @@
 FAILING EXPRESSIONS
+-------------------------
 
 
 SUBS -> carry flag
+------------------
+!x y n.
+  ((x + (y + 1)) < (2 ** (SUC n)))
+  =
+  ((x DIV 2 + y DIV 2 + (x MOD 2 + y MOD 2 - x MOD 2 * y MOD 2)) < (2 ** n))
 status: ok, messy solution in a separate file
 Andreas
+
 

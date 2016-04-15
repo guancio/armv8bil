@@ -29,6 +29,11 @@ tc_one_instruction2_by_bin "b9003bff";
 arm8_step_code `MOV X0, #1`;
 arm8_step_code `ADD X0, X1, X2`;
 tc_exp_arm8 ``s.REG 1w + s.REG 2w``;
+tc_exp_arm8 ``s.REG 1w + s.REG 2w + 1w -37w + (s.REG 12w * 13w)``;
+
+tc_exp_arm8 ``s.REG 1w >>~ 2w + s.REG 2w >>~ 2w``;
+
+
 
 arm8_step_code `ADDS X0, X1, X2`;
 tc_exp_arm8 ``(s.REG 1w + s.REG 2w) = 0w``;
@@ -61,71 +66,269 @@ val plus_lt_2exp64_tm = GSYM (tryprove(
 ));
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 val goal = ``
-!x y n.
+!n x y.
   ((x + (y + 1)) < (2 ** (SUC n)))
   =
   ((x DIV 2 + y DIV 2 + (x MOD 2 + y MOD 2 - x MOD 2 * y MOD 2)) < (2 ** n))
 ``;
 
+
 val plus1mod2_thm =
 let
   val j_var = ``j:num``
-  val simpThm = (GEN j_var (SPEC ``1:num`` (SPEC j_var (UNDISCH (SPEC (Term `2:num`) arithmeticTheory.MOD_PLUS)))))
-  val simpAssum = GSYM (SIMP_CONV (arith_ss) [] ``0 < 2:num``)
-  val simpThm2 = (REWRITE_RULE [EQ_IMP_THM] simpAssum)
-  (* (REWRITE_RULE [AND1_THM] (SIMP_RULE (pure_ss) [EQ_IMP_THM] simpAssum)) *)
+  val simpThm = ((SPECL [j_var, ``1:num``]) o (SIMP_RULE (arith_ss) []) o (SPEC ``2:num``)) arithmeticTheory.MOD_PLUS
+  val simpThm1 = (SIMP_RULE (arith_ss) []) simpThm
 in
-  GSYM (MP (DISCH (concl simpThm2) simpThm) simpThm2)
+  (GSYM o (GEN j_var)) simpThm1
 end;
 
 val mult2plus1div2_thm =
 let
-  val x_var = ``x:num``
   val simpThm = SPEC ``2:num`` arithmeticTheory.ADD_DIV_ADD_DIV
   val simpAssum = prove(``0 < 2:num``, FULL_SIMP_TAC (arith_ss) [])
 in
-  SIMP_RULE (arith_ss) [] (GEN x_var (SPEC ``1:num`` (SPEC x_var (MP simpThm simpAssum))))
+  ((SIMP_RULE (arith_ss) []) o (GEN ``x:num``) o (SPECL [``x:num``, ``1:num``]) o (MP simpThm))  simpAssum
 end;
 
-(* TODO: experiment with simple solve spec arith conclusion function *)
-fun specialize_thm_n_2 t =
-  let
-    val specThm = SPEC ``2:num`` t
-    val simpAssum = prove(``0 < 2:num``, FULL_SIMP_TAC (arith_ss) [])
-  in 
-    MP specThm simpAssum
-  end
-;
 
 val mult2plus2div2 = prove(``(2 * (m:num) + 2) DIV 2 = m + 1``,
-  (RW_TAC (pure_ss) [(prove (``2 * (m:num) + 2 = (m + 1) * 2 + 0``, (RW_TAC (arith_ss) [])))])
-  THEN (FULL_SIMP_TAC (arith_ss) [specialize_thm_n_2 arithmeticTheory.ADD_DIV_ADD_DIV])
+  (ASSUME_TAC (((SPECL [``m:num``, ``2:num``]) o (SIMP_RULE (arith_ss) []) o (SPEC ``2:num``)) arithmeticTheory.ADD_DIV_ADD_DIV))
+  THEN (FULL_SIMP_TAC (arith_ss) [])
 );
 
 val mult2plus2mod2 = prove(``(2 * m + 2) MOD 2 = 0``,
-  (FULL_SIMP_TAC (arith_ss) [Once (GSYM (specialize_thm_n_2 arithmeticTheory.MOD_PLUS)), arithmeticTheory.EVEN_MOD2])
-  THEN (Q.ABBREV_TAC `n = 2 * m`)
-  THEN (`EVEN n` by ALL_TAC)
-  THENL [
-    (FULL_SIMP_TAC (srw_ss()) [Abbr `n`, arithmeticTheory.EVEN_DOUBLE])
-    ,
-    ALL_TAC
-  ]
+  (ASSUME_TAC (((SPECL [``2*m:num``, ``2:num``]) o (SIMP_RULE (arith_ss) []) o (SPEC ``2:num``) o GSYM) arithmeticTheory.MOD_PLUS))
+  THEN (FULL_SIMP_TAC (arith_ss) [])
+  THEN (`EVEN (2*m)` by (FULL_SIMP_TAC (srw_ss()) [arithmeticTheory.EVEN_DOUBLE]))
   THEN (FULL_SIMP_TAC (arith_ss) [arithmeticTheory.EVEN_MOD2])
 );
 
 val mult2plus1mod2 = prove(``(2 * m + 1) MOD 2 = 1``,
-  (FULL_SIMP_TAC (arith_ss) [Once (GSYM (specialize_thm_n_2 arithmeticTheory.MOD_PLUS)), arithmeticTheory.EVEN_MOD2])
-  THEN (Q.ABBREV_TAC `n = 2 * m`)
-  THEN (`EVEN n` by ALL_TAC)
-  THENL [
-    (FULL_SIMP_TAC (srw_ss()) [Abbr `n`, arithmeticTheory.EVEN_DOUBLE])
-    ,
-    ALL_TAC
-  ]
+  (ASSUME_TAC (((SPECL [``2*m:num``, ``1:num``]) o (SIMP_RULE (arith_ss) []) o (SPEC ``2:num``) o GSYM) arithmeticTheory.MOD_PLUS))
+  THEN (FULL_SIMP_TAC (arith_ss) [])
+  THEN (`EVEN (2*m)` by (FULL_SIMP_TAC (srw_ss()) [arithmeticTheory.EVEN_DOUBLE]))
   THEN (FULL_SIMP_TAC (arith_ss) [arithmeticTheory.EVEN_MOD2])
 );
+
+val FROM_NUM_TO_PLUS = (REWRITE_RULE [arithmeticTheory.ADD1]);
+
+val thm_carry_1 = prove(``^goal``,
+	(REPEAT GEN_TAC)
+	THEN (FULL_SIMP_TAC (arith_ss) [arithmeticTheory.ADD1])
+	THEN (Q.ABBREV_TAC `z = y + 1`)
+	THEN (FULL_SIMP_TAC (srw_ss()) [FROM_NUM_TO_PLUS SUM_2EXP_EQ])
+	THEN (FULL_SIMP_TAC (srw_ss()) [Abbr `z`])
+	
+	THEN (Cases_on `EVEN y`)
+	THENL [
+          (ASSUME_TAC (((SPEC ``y:num``) o (REWRITE_RULE [Once EQ_IMP_THM]) o FROM_NUM_TO_PLUS) EVEN_DIV_EQ_SUC))
+	  THEN (REV_FULL_SIMP_TAC (srw_ss()) [])
+	  THEN (FULL_SIMP_TAC (pure_ss) [Once plus1mod2_thm])
+	  THEN (FULL_SIMP_TAC (arith_ss) [arithmeticTheory.EVEN_MOD2])
+	  ,
+	  ALL_TAC
+	]
+	THEN (FULL_SIMP_TAC (pure_ss) [GSYM arithmeticTheory.ODD_EVEN])
+        THEN (ASSUME_TAC (((SPEC ``y:num``) o (REWRITE_RULE [Once EQ_IMP_THM]) o FROM_NUM_TO_PLUS) arithmeticTheory.ODD_EXISTS))
+  	THEN (REV_FULL_SIMP_TAC (srw_ss()) [])
+	THEN (FULL_SIMP_TAC (arith_ss) [arithmeticTheory.ADD1])
+	THEN (FULL_SIMP_TAC (arith_ss) [mult2plus1div2_thm, mult2plus2mod2, mult2plus1mod2, mult2plus2div2])
+);
+
+
+val plus_plus1_lt_2exp64_tm = GSYM (tryprove(
+    ``∀ x y . 
+      (((x // 2w) + (y // 2w) + ((word_mod x 2w) || (word_mod y 2w))) <+ (9223372036854775808w:word64)) =
+      (w2n x DIV 2 + w2n y DIV 2 + (w2n x MOD 2 + w2n y MOD 2 − w2n x MOD 2 * w2n y MOD 2) < 9223372036854775808)
+    ``,
+	(REPEAT STRIP_TAC)
+	THEN (EVAL_TAC)
+	THEN (FULL_SIMP_TAC (arith_ss) [bitTheory.MOD_PLUS_LEFT])
+	THEN (`(w2n x DIV 2 + (w2n y DIV 2 + BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2))) < 18446744073709551616` by ALL_TAC)
+	THENL [
+	      ASSUME_TAC (SPECL [``63:num``, ``w2n (x:word64)``, ``w2n (y:word64)``] RIGHT_SHIFT_SUM_LT_2EXP)
+	      THEN (FULL_SIMP_TAC (srw_ss()) [])
+	      THEN (ASSUME_TAC (ISPEC ``x:word64`` wordsTheory.w2n_lt))
+	      THEN (ASSUME_TAC (ISPEC ``y:word64`` wordsTheory.w2n_lt))
+	      THEN (FULL_SIMP_TAC (srw_ss()) [])
+	      THEN (`(BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2) = 1) \/
+	             (BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2) = 0)` by cheat)
+	      THEN (FULL_SIMP_TAC (arith_ss) []),
+	      ALL_TAC]
+	 THEN (FULL_SIMP_TAC (arith_ss) [])
+	 THEN (`BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2) = (w2n x MOD 2 + w2n y MOD 2 − w2n x MOD 2 * w2n y MOD 2)` by cheat)
+	 THEN (FULL_SIMP_TAC (arith_ss) [])
+));
+
+
+
+
+
+
+(w2n x DIV 2 +
+ (w2n y DIV 2 + BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2))) MOD
+18446744073709551616 < 9223372036854775808 ⇔
+w2n x DIV 2 + w2n y DIV 2 +
+(w2n x MOD 2 + w2n y MOD 2 − w2n x MOD 2 * w2n y MOD 2) <
+9223372036854775808
+
+if we prove that (w2n x DIV 2 +
+ (w2n y DIV 2 + BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2))) < 18446744073709551616
+
+then 
+(w2n x DIV 2 +
+ (w2n y DIV 2 + BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2))) MOD
+18446744073709551616 =
+(w2n x DIV 2 +
+ (w2n y DIV 2 + BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2)))
+
+then we have
+
+(w2n x DIV 2 +
+ (w2n y DIV 2 + BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2)))
+ < 9223372036854775808 ⇔
+w2n x DIV 2 + w2n y DIV 2 +
+(w2n x MOD 2 + w2n y MOD 2 − w2n x MOD 2 * w2n y MOD 2) <
+9223372036854775808
+
+
+
+
+));
+
+((a MOD n) + b)) MOD n mod n
+
+
+blastLib.BBLAST_PROVE ``((word_mod (x:word64) 2w) + (word_mod (y:word64) (2w:word64))) =  (((word_mod x 2w) + (word_mod y 2w)) - (((word_mod x 2w) * (word_mod y 2w))))``;
+
+
+val tmp1 = blastLib.BBLAST_PROVE ``((1w && x) = 1w) \/ ((1w && x) = 0w:word64)``;
+val tmp2 = blastLib.BBLAST_PROVE ``((1w && y) = 1w) \/ ((1w && y) = 0w:word64)``;
+prove(``((0x1w && (x:word64)) || (0x1w && (y:word64))) =
+	 ((0x1w && (x:word64)) + (0x1w && (y:word64)) - ((0x1w && (x:word64)) * (0x1w && (y:word64))))``.
+	 (ASSUME_TAC tmp1)
+	 THEN (ASSUME_TAC tmp2)
+	 THEN (RW_TAC (srw_ss()) [])
+	 THEN (FULL_SIMP_TAC (srw_ss()) [])
+);
+
+blastLib.BBLAST_PROVE ``
+ ((0x1w && (x:word64)) || (0x1w && (x:word64))) =
+ ((0x1w && (x:word64)) * (0x1w && (x:word64)))
+``;
+
+val tmp3 = blastLib.BBLAST_PROVE ``((1w:word64) && y) = (word_mod y 2w)``;
+
+
+
+ ((0x1w && (x:word64)) + (0x1w && (x:word64)) + ((0x1w && (x:word64)) * (0x1w && (x:word64))))
+= 0x1w``;
+
+
+GSYM (tryprove(
+    ``∀ x y . 
+      (((x // 2w) + (y // 2w) + ((word_mod x 2w) * (word_mod y 2w) )) <+ (9223372036854775808w:word64)) =
+      (w2n x + w2n y < 18446744073709551616)
+    ``,
+	(REPEAT STRIP_TAC)
+	THEN (EVAL_TAC)
+	THEN ((FULL_SIMP_TAC (arith_ss) [arithmeticTheory.MOD_PLUS]))
+	THEN ((FULL_SIMP_TAC (arith_ss) [arithmeticTheory.MOD_PLUS, DIV_PRODMOD_LT_2EXP]))
+	THEN  (FULL_SIMP_TAC (pure_ss) [prove(``(18446744073709551616:num) = 2 ** SUC 63``, EVAL_TAC), SPECL [``63:num``, ``w2n(x:word64)``, ``w2n(y:word64)``] SUM_2EXP_EQ])
+	THEN (ASSUME_TAC (SPECL [``63:num``, ``w2n(x:word64)``, ``w2n(y:word64)``] DIV_PRODMOD_LT_2EXP))
+	THEN (ASSUME_TAC (ISPEC ``x:word64`` wordsTheory.w2n_lt))
+	THEN (ASSUME_TAC (ISPEC ``y:word64`` wordsTheory.w2n_lt))
+	THEN (FULL_SIMP_TAC (srw_ss()) [wordsTheory.dimword_64])
+	THEN ((FULL_SIMP_TAC (arith_ss) []))
+));
+
+
+
+
+val DIV_PRODMOD_LT_2EXP = store_thm("DIV_PRODMOD_LT_2EXP"
+  , ``∀ (n:num) (j:num) (k:num). (j < 2**(SUC n)) ∧ (k < 2**(SUC n)) ==> (j DIV 2 + k DIV 2 + (j MOD 2) * (k MOD 2) < 2**(SUC n))``
+  ,       (REPEAT STRIP_TAC)
+    THEN  (ASSUME_TAC (SPEC_ALL MULT_MOD2_01))
+    THEN  (RW_TAC (pure_ss) [])
+    THEN  (
+            (RW_TAC (arith_ss) [])
+      THEN  (RW_TAC (pure_ss) [arithmeticTheory.ADD_ASSOC])
+      THEN  (FULL_SIMP_TAC (arith_ss) [RIGHT_SHIFT_SUM_LT_2EXP])
+    )
+);
+
+
+
+
+
+arm8_step_code `SUBS X0, X1, X2`;
+``((if
+                  w2n (s.REG 1w) + w2n (¬s.REG 2w) + 1 <
+                  18446744073709551616
+                then
+                  w2n (s.REG 1w) + w2n (¬s.REG 2w) + 1
+                else
+                  (w2n (s.REG 1w) + w2n (¬s.REG 2w) + 1) MOD
+                  18446744073709551616) ≠
+               w2n (s.REG 1w) + w2n (¬s.REG 2w) + 1)``;
+
+``(if a < n then a else a MOD n) <> a``
+
+``a<n``
+
+val exp1 =  ``w2n (s.REG 1w) + w2n (¬s.REG 2w) + 1 < 18446744073709551616``;
+val t1 = ((SIMP_RULE (arith_ss) []) o (SPEC ``63:num``)) thm_carry_1;
+val t2 = SIMP_CONV (arith_ss) [t1] exp1;
+(snd o dest_eq o concl) t2;
+
+
+``w2n (¬s.REG 2w) DIV 2 + w2n (s.REG 1w) DIV 2 +
+  (w2n (¬s.REG 2w) MOD 2 + w2n (s.REG 1w) MOD 2 −
+   w2n (¬s.REG 2w) MOD 2 * w2n (s.REG 1w) MOD 2) < 9223372036854775808``
+   =
+tc_exp_arm8 
+``¬s.REG 2w >>~ 1w + s.REG 1w >>~ 1w +
+  (¬s.REG 2w && 1w + s.REG 1w && 1w −
+   ¬s.REG 2w && 1w * s.REG 1w && 1w)``
+
+tc_exp_arm8 ``9223372036854775808w:word64``;
+
+
+tc_exp_arm8 `` (s.REG 2w) // 2w + (s.REG 2w) // 2w + (word_mod (s.REG 2w) 2w ‖ word_mod (s.REG 2w) 2w) <+ 9223372036854775808w``;
+
+
+``¬s.REG 2w >>~ 1w + s.REG 1w >>~ 1w +
+  (¬s.REG 2w && 1w + s.REG 1w && 1w −
+   ¬s.REG 2w && 1w * s.REG 1w && 1w) = 9223372036854775808w:word64``;
+   
+
+
+
+2**63-1
+2**63-1
+
+2**64-2
 
 val mult
 
@@ -143,34 +346,6 @@ if x then (2=3) else (4=5)
 (SIMP_CONV (srw_ss())  [arithmeticTheory.RIGHT_ADD_DISTRIB]) ``((m:num) + 1) * 2`` 
 
 
-prove(``^goal``,
-	(REPEAT GEN_TAC)
-	THEN (Q.ABBREV_TAC `z = y + 1`)
-	THEN (FULL_SIMP_TAC (srw_ss()) [SUM_2EXP_EQ])
-	THEN (FULL_SIMP_TAC (srw_ss()) [Abbr `z`])
-	
-	THEN (Cases_on `EVEN y`)
-(* EVEN_MOD2 ODD_EVEN EVEN_DIV_EQ_SUC *)
-	THENL [
-	  (FULL_SIMP_TAC (pure_ss) [Once (GSYM arithmeticTheory.ADD1)])
-	  THEN (FULL_SIMP_TAC (pure_ss) [Once (EVEN_DIV_EQ_SUC)])
-	  THEN (FULL_SIMP_TAC (pure_ss) [GSYM EVEN_DIV_EQ_SUC])
-	  
-	  THEN (FULL_SIMP_TAC (pure_ss) [plus1mod2_thm])
-	  THEN (FULL_SIMP_TAC (arith_ss) [arithmeticTheory.EVEN_MOD2])
-	  ,
-	  ALL_TAC
-	]
-	
-	THEN (FULL_SIMP_TAC (pure_ss) [GSYM arithmeticTheory.ODD_EVEN])
-	THEN (FULL_SIMP_TAC (pure_ss) [arithmeticTheory.ODD_EXISTS])
-
-	THEN (FULL_SIMP_TAC (arith_ss) [arithmeticTheory.ADD1])
-
-	THEN (FULL_SIMP_TAC (pure_ss) [mult2plus1div2_thm, mult2plus2mod2, mult2plus1mod2, mult2plus2div2])
-
-	THEN (FULL_SIMP_TAC (arith_ss) []) (* arithmeticTheory.MULT_0 *)
-);
 
 
 (*
