@@ -40,6 +40,32 @@ tc_exp_arm8 ``(w2w
               ((w2w (s.REG (1w :word5)) :word32) +
                (w2w (s.REG (2w :word5)) :word32)) :word64)``;
 (* FAILURE *)
+(*
+I do not see a failure here, but this output:
+
+tc_exp_arm8 ``(w2w
+              ((w2w (s.REG (1w :word5)) :word32) +
+#                (w2w (s.REG (2w :word5)) :word32)) :word64)``;
+<<HOL message: more than one resolution of overloading was possible>>
+<<HOL message: more than one resolution of overloading was possible>>
+<<HOL message: more than one resolution of overloading was possible>>
+val it =
+   (``Cast
+    (Plus (LowCast (Den (r2s 1w)) Bit32) (LowCast (Den (r2s 2w)) Bit32))
+    Bit64``,
+    ``w2w (w2w (s.REG 1w) + w2w (s.REG 2w))``,
+     []
+|- ∀env s.
+     (env (r2s 2w) = (Reg Bit64,Int (Reg64 (s.REG 2w)))) ⇒
+     (env (r2s 1w) = (Reg Bit64,Int (Reg64 (s.REG 1w)))) ⇒
+     (bil_eval_exp
+        (Cast
+           (Plus (LowCast (Den (r2s 1w)) Bit32)
+              (LowCast (Den (r2s 2w)) Bit32)) Bit64) env =
+      Int (Reg64 (w2w (w2w (s.REG 1w) + w2w (s.REG 2w)))))):
+   term * term * thm
+
+*)
 
 (* 64-bit addition *)
 arm8_step_code `ADD X0, X1, X2`;
