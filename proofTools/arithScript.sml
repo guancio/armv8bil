@@ -377,6 +377,18 @@ val MULT_DIV_LE = store_thm("MULT_DIV_LE"
   , (REPEAT STRIP_TAC) THEN (ASSUME_TAC ((SPEC ``j:num`` o UNDISCH_ALL o SPECX) arithmeticTheory.DIVISION)) THEN (RW_TAC (arith_ss) [])
 );
 
+val extract_v2w_alt = store_thm("extract_v2w_alt"
+  , ``∀ (h :num) (l :num) (w :α word). (dimindex (:β) = SUC h − l) ==> dimindex (:β) < dimindex (:α) ==> (((h >< l) w :β word) = (v2w (field h l (w2v w)) :β word))``
+  , (RW_TAC (srw_ss()) [GSYM bitstringTheory.extract_v2w])
+);
+
+val bits_v2w = store_thm("bits_v2w"
+  , ``∀ (h :num) (l :num) (w :α word). ((h -- l) w = (v2w (field h l (w2v w)) :α word))``
+  ,       (REPEAT GEN_TAC)
+    THEN  (ASSUME_TAC (SPEC_ALL (prove (``∀ (w :α word). ∃ (v :bitstring). (w = v2w v)``, (PROVE_TAC [bitstringTheory.v2w_w2v])))))
+    THEN  (FULL_SIMP_TAC (srw_ss()) [bitstringTheory.word_bits_v2w, bitstringTheory.w2v_v2w])
+);
+
 (* ------------------------------------------------------------------------- *)
 val _ = export_theory();
  
