@@ -156,6 +156,38 @@ val thm_carry_1 = prove(``^goal``,
 	THEN (FULL_SIMP_TAC (arith_ss) [mult2plus1div2_thm, mult2plus2mod2, mult2plus1mod2, mult2plus2div2])
 );
 
+val mod2either0or1 = prove(``!x. (x MOD 2 = 0) \/ (x MOD 2 = 1)``,
+  (STRIP_TAC)
+  THEN (Cases_on `EVEN x`)
+  THENL [
+    (FULL_SIMP_TAC (arith_ss) [arithmeticTheory.EVEN_MOD2])
+    ,
+    (FULL_SIMP_TAC (arith_ss) [arithmeticTheory.EVEN_ODD])
+    THEN (ASSUME_TAC ((SPEC ``x:num``) (FROM_NUM_TO_PLUS arithmeticTheory.EVEN_ODD_EXISTS)))
+    THEN (REV_FULL_SIMP_TAC (arith_ss) [])
+    THEN (FULL_SIMP_TAC (arith_ss) [mult2plus1mod2])
+  ]
+);
+
+val mod2bormod2either0or1 = prove(
+  ``(BITWISE 64 $\/ (w2n (x:word64) MOD 2) (w2n (y:word64) MOD 2) = 1) \/
+    (BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2) = 0)
+  ``,
+      (ASSUME_TAC ((SPEC ``w2n (x:word64)``) mod2either0or1))
+      THEN (ASSUME_TAC ((SPEC ``w2n (y:word64)``) mod2either0or1))
+      THEN (RW_TAC (bool_ss) [])
+      THEN (FULL_SIMP_TAC (arith_ss) [])
+      THEN (EVAL_TAC)
+);
+
+val mod2boreq = prove(``BITWISE 64 $\/ (w2n (x:word64) MOD 2) (w2n (y:word64) MOD 2) = (w2n x MOD 2 + w2n y MOD 2 − w2n x MOD 2 * w2n y MOD 2)``,
+  (ASSUME_TAC ((SPEC ``w2n (x:word64)``) mod2either0or1))
+  THEN (ASSUME_TAC ((SPEC ``w2n (y:word64)``) mod2either0or1))
+  THEN (RW_TAC (bool_ss) [])
+  THEN (FULL_SIMP_TAC (arith_ss) [])
+  THEN (EVAL_TAC)
+);
+
 
 val plus_plus1_lt_2exp64_tm = GSYM (tryprove(
     ``∀ x y . 
@@ -167,19 +199,28 @@ val plus_plus1_lt_2exp64_tm = GSYM (tryprove(
 	THEN (FULL_SIMP_TAC (arith_ss) [bitTheory.MOD_PLUS_LEFT])
 	THEN (`(w2n x DIV 2 + (w2n y DIV 2 + BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2))) < 18446744073709551616` by ALL_TAC)
 	THENL [
-	      ASSUME_TAC (SPECL [``63:num``, ``w2n (x:word64)``, ``w2n (y:word64)``] RIGHT_SHIFT_SUM_LT_2EXP)
+	      (ASSUME_TAC (SPECL [``63:num``, ``w2n (x:word64)``, ``w2n (y:word64)``] RIGHT_SHIFT_SUM_LT_2EXP))
 	      THEN (FULL_SIMP_TAC (srw_ss()) [])
 	      THEN (ASSUME_TAC (ISPEC ``x:word64`` wordsTheory.w2n_lt))
 	      THEN (ASSUME_TAC (ISPEC ``y:word64`` wordsTheory.w2n_lt))
 	      THEN (FULL_SIMP_TAC (srw_ss()) [])
-	      THEN (`(BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2) = 1) \/
-	             (BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2) = 0)` by cheat)
+	      THEN (ASSUME_TAC mod2bormod2either0or1)
+
+
 	      THEN (FULL_SIMP_TAC (arith_ss) []),
 	      ALL_TAC]
 	 THEN (FULL_SIMP_TAC (arith_ss) [])
-	 THEN (`BITWISE 64 $\/ (w2n x MOD 2) (w2n y MOD 2) = (w2n x MOD 2 + w2n y MOD 2 − w2n x MOD 2 * w2n y MOD 2)` by cheat)
+	 THEN (ASSUME_TAC mod2boreq)
 	 THEN (FULL_SIMP_TAC (arith_ss) [])
 ));
+
+
+
+
+
+
+
+
 
 
 
