@@ -343,21 +343,19 @@ fun tc_stmt_arm8_hex instr =
             (* Normalize theorem to rewrite constants for immediate values *)
             (* Transform hypotesys like Some(constant1,constant2) = Some(v1, v2 )*)
             (* in (constant1=v1), (constant2=v2) *)
-            val ass_some = (List.filter (fn tm =>
+            val ass_some_thms = (List.filter (fn tm =>
                 (is_eq tm) andalso ((optionLib.is_some o snd o dest_eq) tm) andalso ((optionLib.is_some o snd o dest_eq) tm)
                 ) (hyp th));
-            val ass_some = List.map (SIMP_CONV (srw_ss()) []) ass_some;
-            val t1 = List.foldl (fn (thm, main_thm) => (DISCH ((fst o dest_eq o concl) thm) main_thm)) th ass_some;
-            val t2 = REWRITE_RULE ass_some t1;
-            val [t3] = IMP_CANON t2;
-            val t4 = UNDISCH_ALL t3;
-            val t5 = SIMP_RULE (bool_ss) [] t4;
-            (* Apply constants to the conclusion *)
-            val ass_const = (List.filter (fn tm =>
-                (is_eq tm) andalso ((wordsSyntax.is_n2w o fst o dest_eq) tm)
-                ) (hyp t5));
-            val ass_const = List.map (SYM o ASSUME) ass_const;
-            val th = REWRITE_RULE ass_const t5;
+            val ass_some = List.map (fn thm=> let
+                val (x,y) = dest_eq thm
+                val (x,y) = (optionSyntax.dest_some x, optionSyntax.dest_some y)                                      in ListPair.zip(pairSyntax.strip_pair x, pairSyntax.strip_pair y)
+              end) ass_some_thms;
+            val ass_some = List.concat ass_some;
+            val th1 = DISCH_ALL th;
+            val th2 = List.foldl (fn ((v,var), thm) => ((SPEC v) o (GEN var)) thm) th1 ass_some;
+            val th3 = SIMP_RULE (srw_ss()) [] th2;
+            val th4 = UNDISCH_ALL th3;
+            val th = th4;
             (* End of normalization for immediate values *)
             (* Filter only supported changes *)
             val a8sch = List.filter (fn (s, v) => List.exists (fn x => x = s) arm8_supported_fields_str) ((extract_arm8_changes o optionSyntax.dest_some o snd o dest_comb o concl) th);
@@ -374,7 +372,7 @@ fun tc_stmt_arm8_hex instr =
             val stmts = eval (List.foldl (fn (a,b) => ``^b ++ [^a]``) ``[]:bil_stmt_t list`` (List.concat [tmp_assign, assign]));
           val stmts = eval stmts
           in
-            (stmts, List.concat [tmp_certs, certs], arm8thl)
+            (stmts, List.concat [tmp_certs, certs], [th])
           end
       | _    => (``[]``, [], [])
   end

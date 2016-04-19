@@ -73,6 +73,7 @@ fun extract_other_cnd tm =
     handle _ =>
       if       tm = ``¬s.SCTLR_EL1.E0E`` orelse tm = ``(s.PSTATE.EL = 0w)``
         orelse tm = ``(s.exception = NoException)`` orelse tm = ``¬s.SCTLR_EL1.SA0``
+        orelse tm = ``¬s.TCR_EL1.TBI0`` orelse tm = ``¬s.TCR_EL1.TBI1``
       then false
       else true
  ) (strip_conj tm))
@@ -81,7 +82,7 @@ fun extract_other_cnd tm =
 
 fun generate_sim_goal thms =
     let val thms_norm = List.map normalize_thm thms;
-        val goal = `` (sim_invariant s env) /\
+        val goal = `` (sim_invariant s env pco) /\
                       (NextStateARM8 s = SOME s1)
                    ``;
        val cnd_PC = List.foldl (fn (thm,cnd) => ``^cnd \/ ^(get_term_from_ass_path ``s.PC = v`` thm)``) ``F`` thms_norm;
@@ -95,11 +96,11 @@ fun generate_sim_goal thms =
       val goal = ``^goal ==>
            ?k. (
            (bil_exec_step_n
-                 <|pco := SOME <|label := Address (Reg64 s.PC); index := 0|>;
+                 <|pco := pco;
                    pi := prog; environ := env; termcode := Unknown; debug := d1;
                    execs := e1|> k =
                bs1) ==>
-           (((sim_invariant s1 bs1.environ) /\ ^side_end_cond_1)
+           (((sim_invariant s1 bs1.environ bs1.pco) /\ ^side_end_cond_1)
             \/ (bs1.pco = NONE))
            )``;
    in goal end;
@@ -140,7 +141,8 @@ fun PROVE_SIM_TAC thm =
             THEN (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def])
             (* memory part *)
             THEN (fn (asl,goal)  => (
-              let val mem_cnds = (strip_conj o fst o dest_disj) goal;
+              let (* val mem_cnds = (strip_conj o fst o dest_disj) goal; *)
+                  val mem_cnds = strip_conj goal;
                   val addrs = List.map (fn tm => ((fn x => List.nth(x,1)) o snd o strip_comb o fst o dest_eq) tm) mem_cnds;
               in  
                   MAP_EVERY (fn tm => PAT_ASSUM ``!a:word64.(p==>q)`` (fn thm =>
@@ -195,15 +197,51 @@ prove (``^goal``,
 
 
 val instructions = [
-"d10103ff","f9000fe0","f9000be1","f90007e2","b90007e3","b9003bff","14000009"
+"d10103ff","f9000fe0","f9000be1","f90007e2","b90007e3","b9003bff","14000009",
+"b9803be0","d37ff800","f94007e1","8b000020","7900001f","b9403be0","11000400",
+"b9003be0","b94007e0","531f7801","b9403be0","6b00003f","54fffe8c","b94007e0",
+"51000400","b9003fe0","14000043","b9803fe0","d37ff800","f9400fe1","8b000020",
+"79400000","53003c00","f90017e0","f9001bff","b94007e0","51000400","b9003be0",
+"1400002a","b9803be0","d37ff800","f9400be1","8b000020","79400000","53003c01",
+"f94017e0","9b007c20","f9401be1","8b000020","f9001be0","b9403fe1","b9403be0",
+"0b000020","93407c00","91000400","d37ff800","f94007e1","8b000020","79400000",
+"53003c00","f9401be1","8b000020","f9001be0","b9403fe1","b9403be0","0b000020",
+"93407c00","91000400","d37ff800","f94007e1","8b000020","f9401be1","53003c21",
+"79000001","f9401be0","d350fc00","f9001be0","b9403be0","51000400","b9003be0",
+"b9403be0","6b1f001f","54fffaaa","b9803fe0","d37ff800","f94007e1","8b000020",
+"f9401be1","53003c21","79000001","b9403fe0","51000400","b9003fe0","b9403fe0",
+"6b1f001f","54fff78a","910103ff","d65f03c0"
 ];
+
 val pcs = snd (List.foldl (fn (code, (pc, pcs)) =>
   ((snd o dest_eq o concl o EVAL) ``^pc+4w``, List.concat[pcs, [pc]])
 ) (``0w:word64``, []) instructions);
 val ops = ListPair.zip (instructions, pcs);
+val ids = List.tabulate ((List.length ops), (fn x=> x));
+
+print "*****START*************\n*****START*************\n*****START*************\n";
+List.foldl (fn (id, x) =>
+  let val _ = print "******************************\n"
+      val (code, pc) = (List.nth(ops, id))
+      val _ = print (String.concat ["Lifting instruction: ", code, "\n"])
+  in
+    (let val thms = [tc_one_instruction2_by_bin code pc ``\x.x<+0x100000w:word64``];
+         val thm = List.hd thms;
+         val goal = generate_sim_goal thms;
+         val thm1 = prove (``^goal``,
+               (REPEAT STRIP_TAC)
+               (* One case for each value of the PC *)
+               THEN (PROVE_SIM_TAC thm)
+               );
+     in (* print_thm thm1 ; *) print "\n" end
+     handle _ => print "-------FAILURE-------\n");
+     1
+  end
+) 1 ids;
 
 
-val id = 0;
+
+val id = 8;
 val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
 val thm = List.hd thms;
 val goal = generate_sim_goal thms;
@@ -212,76 +250,6 @@ prove (``^goal``,
       (* One case for each value of the PC *)
       THEN (PROVE_SIM_TAC thm)
 );
-
-
-val id = 1;
-val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
-val thm = List.hd thms;
-val goal = generate_sim_goal thms;
-prove (``^goal``,
-      (REPEAT STRIP_TAC)
-      (* One case for each value of the PC *)
-      THEN (PROVE_SIM_TAC thm)
-);
-
-
-val id = 2;
-val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
-val thm = List.hd thms;
-val goal = generate_sim_goal thms;
-prove (``^goal``,
-      (REPEAT STRIP_TAC)
-      (* One case for each value of the PC *)
-      THEN (PROVE_SIM_TAC thm)
-);
-
-
-val id = 3;
-val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
-val thm = List.hd thms;
-val goal = generate_sim_goal thms;
-prove (``^goal``,
-      (REPEAT STRIP_TAC)
-      (* One case for each value of the PC *)
-      THEN (PROVE_SIM_TAC thm)
-);
-
-
-val id = 4;
-val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
-val thm = List.hd thms;
-val goal = generate_sim_goal thms;
-prove (``^goal``,
-      (REPEAT STRIP_TAC)
-      (* One case for each value of the PC *)
-      THEN (PROVE_SIM_TAC thm)
-);
-
-
-
-val id = 5;
-val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
-val thm = List.hd thms;
-val goal = generate_sim_goal thms;
-prove (``^goal``,
-      (REPEAT STRIP_TAC)
-      (* One case for each value of the PC *)
-      THEN (PROVE_SIM_TAC thm)
-);
-
-
-(* problem *)
-
-val id = 6;
-val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
-val thm = List.hd thms;
-val goal = generate_sim_goal thms;
-prove (``^goal``,
-      (REPEAT STRIP_TAC)
-      (* One case for each value of the PC *)
-      THEN (PROVE_SIM_TAC thm)
-);
-
 
 
 
@@ -296,20 +264,22 @@ val code = arm8AssemblerLib.arm8_code `MOV X1, #1`;
 val instr = (hd code);
 val instr = "d10103ff";
 val instr = "f9000fe0";
-val instr = "f9000be1";
+val instr = "d37ff800";
 
-val pc_value = ``0w:word64``;
+val pc_value = ``32w:word64``;
 (* 2.11 seconds *)
   val fault_wt_mem = ``\x.x<+0x100000w:word64``;
   val (p, certs, [step]) = tc_stmt_arm8_hex instr;
   val (sts, sts_ty) = listSyntax.dest_list p;
   (* manually add the memory fault *)
   val (memory_check_needed, assert_stm, assert_cert) = generate_assert step fault_wt_mem;
-  val sts = List.concat [[``Assert ^bexp_wt_assert``], sts];
-  val certs = List.concat [[cert_wt_assert], certs];
-
+  val sts = List.concat [assert_stm, sts];
+  val certs = List.concat [assert_cert, certs];
   (* manually add the final jump *)
-  val sts = List.concat [sts, [``Jmp (Const (Reg64 (^pc_value+4w)))``]];
+  val s1 = (optionSyntax.dest_some o snd o dest_eq o concl) step;
+  val new_pc_val = (snd o dest_eq o concl o EVAL) ``^s1.PC``;
+  val new_pc_val1 = (snd o dest_eq o concl o (SIMP_CONV (srw_ss()) [ASSUME ``s.PC = ^pc_value``])) new_pc_val;
+  val sts = List.concat [sts, [``Jmp (Const (Reg64 (^new_pc_val1)))``]];
   val p = listSyntax.mk_list(sts,sts_ty);
 	val goal = tc_gen_goal p certs step pc_value fault_wt_mem;
 	val thm = prove(``^goal``,
@@ -324,11 +294,9 @@ val pc_value = ``0w:word64``;
 			(* use the step theorem *)
 			THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [ASSUME ``s.PC=^pc_value``] (DISCH_ALL step))))
 			THEN (FULL_SIMP_TAC (srw_ss()) [])
-
       (* Manually abbreviate the memory condition *)
       THEN (Q.ABBREV_TAC `mem_cond = ^((snd o dest_eq o concl o EVAL) ``∀a. (\x.x<+0x100000w:word64) a ⇒ (s.MEM a = s1.MEM a)``)`)
-
-      THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def, bool2b_def])
+			THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def, bool2b_def])
       (* other part of the invariant: basically show that the code does not mess up with other stuff *)
       THEN (fn (asl,g) =>
         if (does_match g ``Aligned(x,y)``) then
@@ -343,9 +311,6 @@ val pc_value = ``0w:word64``;
       THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def])
       THEN (FULL_SIMP_TAC (srw_ss()) [])
     );
-    in
-	thm
-    end;
 
 
       THEN (ONE_EXEC_ASSERT certs p pc_value 1)
@@ -358,6 +323,8 @@ val pc_value = ``0w:word64``;
       THEN (ONE_EXEC_MAIN certs p pc_value 6)
       THEN (ONE_EXEC_MAIN certs p pc_value 7)
 
+
+val [th] = arm8thl;
 
 
 val i = 1;
@@ -398,3 +365,25 @@ val curr_goal = ``
  Aligned (s1.SP_EL0,8) ∧ ¬s1.SCTLR_EL1.SA0) ∧
 (∀a. a <₊ 0x100000w ⇒ (s.MEM a = s1.MEM a)) ∨ (bs1.pco = NONE)
 ``;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

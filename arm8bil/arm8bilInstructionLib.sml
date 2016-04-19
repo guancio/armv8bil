@@ -119,6 +119,8 @@ val sim_invariant_def = Define `sim_invariant s env pco =
    ¬s.SCTLR_EL1.E0E ∧ (s.PSTATE.EL = 0w) ∧ (s.exception = NoException) /\
    (Aligned (s.SP_EL0,8)) /\
    ¬s.SCTLR_EL1.SA0 /\
+   ¬s.TCR_EL1.TBI0 /\
+   ¬s.TCR_EL1.TBI1 /\
    (pco = SOME <|label := Address (Reg64 s.PC); index := 0|>)
       `;
 
