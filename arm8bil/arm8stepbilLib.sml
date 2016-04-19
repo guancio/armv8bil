@@ -343,6 +343,7 @@ fun tc_stmt_arm8_hex instr =
             (* Normalize theorem to rewrite constants for immediate values *)
             (* Transform hypotesys like Some(constant1,constant2) = Some(v1, v2 )*)
             (* in (constant1=v1), (constant2=v2) *)
+            val [th] = arm8thl;
             val ass_some_thms = (List.filter (fn tm =>
                 (is_eq tm) andalso ((optionLib.is_some o snd o dest_eq) tm) andalso ((optionLib.is_some o snd o dest_eq) tm)
                 ) (hyp th));
@@ -353,7 +354,9 @@ fun tc_stmt_arm8_hex instr =
             val ass_some = List.concat ass_some;
             val th1 = DISCH_ALL th;
             val th2 = List.foldl (fn ((v,var), thm) => ((SPEC v) o (GEN var)) thm) th1 ass_some;
-            val th3 = SIMP_RULE (srw_ss()) [] th2;
+            (* I can not use srw_ss, otherwise I will lose pattern on memory accesses e.g. M[a+4+3w] *)
+            (* become M[a+7w] *)
+            val th3 = SIMP_RULE (bool_ss) [] th2;
             val th4 = UNDISCH_ALL th3;
             val th = th4;
             (* End of normalization for immediate values *)

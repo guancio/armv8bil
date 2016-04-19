@@ -240,8 +240,11 @@ List.foldl (fn (id, x) =>
 ) 1 ids;
 
 
+"7900001f"; 11;
+(* fail due to alignemtn of R0 *)
 
-val id = 8;
+val id = 11;
+val x = 1;
 val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
 val thm = List.hd thms;
 val goal = generate_sim_goal thms;
@@ -374,16 +377,20 @@ val curr_goal = ``
 
 
 
+******************************
+Lifting instruction: 54fffe8c
+-------FAILURE-------
 
 
+******************************
+Lifting instruction: 79400000
+-------FAILURE-------
 
+******************************
+Lifting instruction: 79000001
+failed.
+-------FAILURE-------
 
-
-
-
-
-
-
-
-
-
+******************************
+Lifting instruction: d65f03c0
+-------FAILURE-------
