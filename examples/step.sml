@@ -112,9 +112,8 @@ fun generate_sim_goal thms =
 (* align_conversion_thm *)
 (* Do we really nead to solve the aligned or we can generate the assertion? *)
 
-fun PROVE_SIM_TAC i =
+fun PROVE_SIM_TAC thm =
         fn (asl,goal) => (
-        let val thm = (List.nth(thms_norm, i)) in
             (FULL_SIMP_TAC (srw_ss()) [])
             THEN (EXISTS_TAC (
                  List.nth((snd o strip_comb o fst o dest_eq)
@@ -152,7 +151,6 @@ fun PROVE_SIM_TAC i =
               end
             )(asl,goal))
             THEN (FULL_SIMP_TAC (srw_ss()) [])
-         end
          )(asl,goal);
 
 
@@ -170,11 +168,123 @@ prove (``^goal``,
       (REPEAT STRIP_TAC)
       (* One case for each value of the PC *)
       THENL [
-          PROVE_SIM_TAC 0,
-          PROVE_SIM_TAC 1,
-          PROVE_SIM_TAC 2
+          PROVE_SIM_TAC (List.nth(thms, 0)),
+          PROVE_SIM_TAC (List.nth(thms, 1)),
+          PROVE_SIM_TAC (List.nth(thms, 2)),
       ]
 );
+
+
+val instructions = [
+"d10103ff","f9000fe0","f9000be1","f90007e2","b90007e3","b9003bff","14000009"
+];
+val pcs = snd (List.foldl (fn (code, (pc, pcs)) =>
+  ((snd o dest_eq o concl o EVAL) ``^pc+4w``, List.concat[pcs, [pc]])
+) (``0w:word64``, []) instructions);
+val ops = ListPair.zip (instructions, pcs);
+val thms = List.map(fn (ins,pc) => tc_one_instruction2_by_bin ins pc ``\x.x<+0x100000w:word64``) ops;
+val goal = generate_sim_goal thms;
+prove (``^goal``,
+      (REPEAT STRIP_TAC)
+      (* One case for each value of the PC *)
+      THENL (List.map PROVE_SIM_TAC thms)
+);
+
+
+
+
+
+val instructions = [
+"d10103ff","f9000fe0","f9000be1","f90007e2","b90007e3","b9003bff","14000009"
+];
+val pcs = snd (List.foldl (fn (code, (pc, pcs)) =>
+  ((snd o dest_eq o concl o EVAL) ``^pc+4w``, List.concat[pcs, [pc]])
+) (``0w:word64``, []) instructions);
+val ops = ListPair.zip (instructions, pcs);
+
+
+val id = 0;
+val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
+val thm = List.hd thms;
+val goal = generate_sim_goal thms;
+prove (``^goal``,
+      (REPEAT STRIP_TAC)
+      (* One case for each value of the PC *)
+      THEN (PROVE_SIM_TAC thm)
+);
+
+
+val id = 1;
+val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
+val thm = List.hd thms;
+val goal = generate_sim_goal thms;
+prove (``^goal``,
+      (REPEAT STRIP_TAC)
+      (* One case for each value of the PC *)
+      THEN (PROVE_SIM_TAC thm)
+);
+
+
+val id = 2;
+val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
+val thm = List.hd thms;
+val goal = generate_sim_goal thms;
+prove (``^goal``,
+      (REPEAT STRIP_TAC)
+      (* One case for each value of the PC *)
+      THEN (PROVE_SIM_TAC thm)
+);
+
+
+val id = 3;
+val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
+val thm = List.hd thms;
+val goal = generate_sim_goal thms;
+prove (``^goal``,
+      (REPEAT STRIP_TAC)
+      (* One case for each value of the PC *)
+      THEN (PROVE_SIM_TAC thm)
+);
+
+
+val id = 4;
+val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
+val thm = List.hd thms;
+val goal = generate_sim_goal thms;
+prove (``^goal``,
+      (REPEAT STRIP_TAC)
+      (* One case for each value of the PC *)
+      THEN (PROVE_SIM_TAC thm)
+);
+
+
+
+val id = 5;
+val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
+val thm = List.hd thms;
+val goal = generate_sim_goal thms;
+prove (``^goal``,
+      (REPEAT STRIP_TAC)
+      (* One case for each value of the PC *)
+      THEN (PROVE_SIM_TAC thm)
+);
+
+
+(* problem *)
+
+val id = 6;
+val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
+val thm = List.hd thms;
+val goal = generate_sim_goal thms;
+prove (``^goal``,
+      (REPEAT STRIP_TAC)
+      (* One case for each value of the PC *)
+      THEN (PROVE_SIM_TAC thm)
+);
+
+
+
+
 
 
 

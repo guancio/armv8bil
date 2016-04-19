@@ -89,7 +89,7 @@ fun PROCESS_ONE_ASSIGNMENT certs n =
 	THEN (FULL_SIMP_TAC (srw_ss()) [bool_cast_simpl2_tm])
     end;
 
-val sim_invariant_def = Define `sim_invariant s env =
+val sim_invariant_def = Define `sim_invariant s env pco =
    (env "" = (NoType,Unknown)) ∧
    (env "R0" = (Reg Bit64,Int (Reg64 (s.REG 0w)))) ∧
    (env "R1" = (Reg Bit64,Int (Reg64 (s.REG 1w)))) ∧
@@ -118,27 +118,28 @@ val sim_invariant_def = Define `sim_invariant s env =
       ∀a. m (Reg64 a) = Reg8 (s.MEM a)) /\
    ¬s.SCTLR_EL1.E0E ∧ (s.PSTATE.EL = 0w) ∧ (s.exception = NoException) /\
    (Aligned (s.SP_EL0,8)) /\
-   ¬s.SCTLR_EL1.SA0
+   ¬s.SCTLR_EL1.SA0 /\
+   (pco = SOME <|label := Address (Reg64 s.PC); index := 0|>)
       `;
 
 fun tc_gen_goal p certs step pc_value fault_wt_mem_cnd =
       let val goal = ``
         (^(list_mk_conj (hyp step))) ==>
         (s.PC = ^pc_value) ==>
-        (sim_invariant s env) ==>
+        (sim_invariant s env pco) ==>
        (?n. ((INDEX_FIND 0 (\(x:bil_block_t). x.label = (Address (Reg64 (s.PC)))) prog) =
                SOME(n, <| label:= (Address (Reg64 (s.PC)));
                   statements:= ^p|>))) ==>
         (NextStateARM8 s = SOME s1) ==>
         (bil_exec_step_n <|
-          pco:= SOME <| label:= (Address (Reg64 (s.PC))); index:= 0 |>;
+          pco:= pco;
           environ:= env ;
           termcode:= Unknown ;
           debug:=d1;
           execs:=e1;
           pi:=prog
           |> ^(numSyntax.term_of_int ((List.length certs)+1)) = bs1) ==>
-        (((sim_invariant s1 bs1.environ) /\
+        (((sim_invariant s1 bs1.environ bs1.pco) /\
          (!a. ^fault_wt_mem_cnd a ==> (s.MEM a = s1.MEM a))) \/
          (bs1.pco = NONE))
         ``
@@ -769,7 +770,11 @@ fun tc_one_instruction2_by_bin instr pc_value fault_wt_mem =
   val sts = List.concat [assert_stm, sts];
   val certs = List.concat [assert_cert, certs];
   (* manually add the final jump *)
-  val sts = List.concat [sts, [``Jmp (Const (Reg64 (^pc_value+4w)))``]];
+  val s1 = (optionSyntax.dest_some o snd o dest_eq o concl) step;
+  val new_pc_val = (snd o dest_eq o concl o EVAL) ``^s1.PC``;
+  val new_pc_val1 = (snd o dest_eq o concl o (SIMP_CONV (srw_ss()) [ASSUME ``s.PC = ^pc_value``])) new_pc_val;
+  val sts = List.concat [sts, [``Jmp (Const (Reg64 (^new_pc_val1)))``]];
+  (* standard section *)
   val p = listSyntax.mk_list(sts,sts_ty);
 	val goal = tc_gen_goal p certs step pc_value fault_wt_mem;
 	val thm = prove(``^goal``,
