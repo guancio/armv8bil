@@ -16,7 +16,7 @@ open stateTheory;
 open lcsymtacs arm8_stepTheory;
 open state_transformerSyntax;
 open arm8_stepLib;
-open proofTools arithTheory;
+open proofTools arithTheory carryTheory;
 open bilTheory arm8bilTheory;
 
 (* ------------------------------------------------------------------------- *)
@@ -732,15 +732,16 @@ val plus_lt_2exp64_tm = GSYM (tryprove(
 	THEN ((FULL_SIMP_TAC (arith_ss) []))
 ));
 
-(* TODO *)
 val minus_lt_2exp64_tm = GSYM (tryprove(
-    ``∀ x y . 
-      (((x // 2w) + (y // 2w) + (word_mod x 2w) * (word_mod y 2w)) <+
-       (9223372036854775808w:word64)) =
+    ``∀ x:word64 y:word64 . 
+      (x // 2w + y // 2w + (word_mod x 2w ‖ word_mod y 2w) <₊ 0x8000000000000000w) =
       (w2n x + w2n y + 1 < 18446744073709551616)
     ``,
-    cheat
+    (REPEAT STRIP_TAC)
+    THEN (ASSUME_TAC (SPECL [``63:num``, ``w2n(x:word64)``, ``w2n(y:word64)``] carry_1_thm))
+    THEN (FULL_SIMP_TAC (arith_ss) [plus_plus1_lt_2exp64_thm, addressTheory.word_mod_def, wordsTheory.word_mod_def])
 ));
+
 
 (* for memory writes *)
 val seven_word_list = [``1w:word64``, ``2w :word64``, ``3w :word64``, ``4w :word64``,
@@ -1204,7 +1205,9 @@ val bool_cast_simpl_tm = prove (``!e.(case if e then Reg1 (1w :word1) else Reg1 
        (RW_TAC (srw_ss()) []));
 
 (* prevent >>>~ to become >>> *)
+HOL_Interactive.toggle_quietdec();
 val myss = simpLib.remove_ssfrags (srw_ss()) ["word shift"];
+HOL_Interactive.toggle_quietdec();
 
 val normalize_64_bit_zero_write_thm = prove(``
 !ha hm .

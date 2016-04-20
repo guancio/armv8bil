@@ -92,13 +92,55 @@ tc_exp_arm8 exp;
 val exp = (snd o dest_eq o concl o EVAL) ``^s1.PSTATE.N``;
 tc_exp_arm8 exp;
 
-arm8_step_code `CMP W3, W4 `;
 val [[t]] = arm8_step_code `CMP X3, X4 `;
 val s1 = (snd o dest_comb o snd o dest_eq o concl) t;
 val exp = (snd o dest_eq o concl o EVAL) ``^s1.PSTATE.V``;
 tc_exp_arm8 exp;
 val exp = (snd o dest_eq o concl o EVAL) ``^s1.PSTATE.C``;
-tc_exp_arm8 exp;
+val (a,b,c) = tc_exp_arm8 exp;
+SIMP_RULE (srw_ss()) [r2s_def] c;
+
+
+val [[t]] = arm8_step_code `CMP W3, W4 `;
+val s1 = (snd o dest_comb o snd o dest_eq o concl) t;
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.PSTATE.C``;
+val (a,b,c) = tc_exp_arm8 exp;
+SIMP_RULE (srw_ss()) [r2s_def] c;
+
+
+
+
+(if e<n then e else e mod n) = e mod n
+==>
+e<n ---- w2n x + w2n y + 1 < 2**64
+==>
+(x // 2w + y // 2w + (word_mod x 2w ‖ word_mod y 2w) <₊ 0x8000000000000000w)
+--
+(s.REg 3w // 2w + s.REg 4w // 2w + (word_mod s.REg 3w 2w ‖ word_mod s.REg 4w 2w) <₊ 0x8000000000000000w)
+
+e1 <₊ e2
+
+tc_exp_arm8 ``s.REG 3w``;
+tc_exp_arm8 ``2w:word64``;
+
+!e1b e2b e1w e2w. (eval eb1 env = int(e1w)) ==> (eval eb2 env = int(e2w)) ==>
+ (bil_eval_exp (Div (eb1) (eb2) env = Int (e1w // e2w)
+
+
+tc_exp_arm8 ``s.REG 3w // 2w:word64``;
+tc_exp_arm8 ``s.REG 4w // 2w:word64``;
+
+tc_exp_arm8 ``(s.REG 3w // 2w:word64) + (s.REG 4w // 2w:word64)``;
+
+tc_exp_arm8 ``s.REG 3w``;
+tc_exp_arm8 ``word_mod (s.REG 3w) 2w:word64``;
+tc_exp_arm8 ``word_mod (s.REG 4w) 2w:word64``;
+
+tc_exp_arm8 ``(word_mod (s.REG 3w) 2w:word64) || (word_mod (s.REG 4w) 2w:word64)``;
+
+tc_exp_arm8 ``(s.REG 3w // 2w:word64) + (s.REG 4w // 2w:word64) + ((word_mod (s.REG 3w) 2w:word64) || (word_mod (s.REG 4w) 2w:word64))``;
+
+tc_exp_arm8 ``word_mod (s.REG 1w) 2w <₊ 0x8000000000000000w``;
 
 val new_exp_thm = (SIMP_CONV (myss) [
       			(* These are for the C flag in addittion *)
@@ -176,4 +218,7 @@ val ae = exp;
 val prefix = "";
 val (o1, o2, o3) = extract_operands ae;
 val f0 = extract_fun ae;
+
+
+
 

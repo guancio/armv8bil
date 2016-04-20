@@ -191,8 +191,8 @@ val mod2boreq = prove(``BITWISE 64 $\/ (w2n (x:word64) MOD 2) (w2n (y:word64) MO
 
 val plus_plus1_lt_2exp64_tm = GSYM (tryprove(
     ``∀ x y . 
-      (((x // 2w) + (y // 2w) + ((word_mod x 2w) || (word_mod y 2w))) <+ (9223372036854775808w:word64)) =
-      (w2n x DIV 2 + w2n y DIV 2 + (w2n x MOD 2 + w2n y MOD 2 − w2n x MOD 2 * w2n y MOD 2) < 9223372036854775808)
+      (w2n x DIV 2 + w2n y DIV 2 + (w2n x MOD 2 + w2n y MOD 2 − w2n x MOD 2 * w2n y MOD 2) < 9223372036854775808) =
+      (((x // 2w) + (y // 2w) + ((word_mod x 2w) || (word_mod y 2w))) <+ (9223372036854775808w:word64))
     ``,
 	(REPEAT STRIP_TAC)
 	THEN (EVAL_TAC)
@@ -215,11 +215,17 @@ val plus_plus1_lt_2exp64_tm = GSYM (tryprove(
 ));
 
 
+(tc_exp_arm8  o snd o dest_eq o concl o (SPECL [``s.REG 0w``, ``s.REG 1w``])) plus_plus1_lt_2exp64_tm
 
 
 
 
 
+
+``∀ x y . 
+      (((x // 2w) + (y // 2w) + ((word_mod x 2w) || (word_mod y 2w))) <+ (9223372036854775808w:word64)) =
+      (w2n x DIV 2 + w2n y DIV 2 + (w2n x MOD 2 + w2n y MOD 2 − w2n x MOD 2 * w2n y MOD 2) < 9223372036854775808)
+    ``
 
 
 
