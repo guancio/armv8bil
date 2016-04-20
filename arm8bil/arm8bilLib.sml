@@ -1205,9 +1205,7 @@ val bool_cast_simpl_tm = prove (``!e.(case if e then Reg1 (1w :word1) else Reg1 
        (RW_TAC (srw_ss()) []));
 
 (* prevent >>>~ to become >>> *)
-HOL_Interactive.toggle_quietdec();
 val myss = simpLib.remove_ssfrags (srw_ss()) ["word shift"];
-HOL_Interactive.toggle_quietdec();
 
 val normalize_64_bit_zero_write_thm = prove(``
 !ha hm .

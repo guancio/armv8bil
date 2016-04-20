@@ -6,7 +6,7 @@ HOLHEAP = base-heap
 EXTRA_CLEANS = $(HOLHEAP) $(HOLHEAP).o
 
 BARE_THYS = ../bilmodel/bilTheory ../l3-machine-code/common/stateTheory ../l3-machine-code/arm8/step/arm8_stepTheory ../l3-machine-code/arm8/step/arm8_stepLib \
-	../proofTools/proofTools ../proofTools/arithTheory ../proofTools/carryTheory ../arm8bil/arm8bilTheory ../arm8bil/arm8bilLib 
+	../proofTools/proofTools ../proofTools/arithTheory ../proofTools/carryTheory ../arm8bil/arm8bilTheory ../arm8bil/arm8bilLib ../arm8bil/arm8stepbilLib ../arm8bil/arm8bilInstructionLib
 
 DEPS = $(patsubst %,%.uo,$(BARE_THYS))
 

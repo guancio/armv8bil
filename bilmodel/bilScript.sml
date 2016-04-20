@@ -101,7 +101,7 @@ Datatype `bil_exp_t =
 Datatype `bil_stmt_t =
   | Declare bil_var_t
   | Assign  string bil_exp_t
-  | Jmp     bil_label_t
+  | Jmp     bil_exp_t
   | CJmp    bil_exp_t bil_label_t bil_label_t
   | Halt    bil_exp_t
   | Assert  bil_exp_t
@@ -1002,7 +1002,10 @@ val bil_exec_step_def = Define `bil_exec_step state = case state.pco of
                 state with <| pco := NONE ; debug := (debug_concat ["Irregular environment after "; bil_stmt_to_string stmt])::state.debug ; execs := state.execs + 1 |>
               else
                 case stmt of
-                  | Jmp l        => state with <| pco := SOME (<| label := l ; index := 0 |>) ; execs := state.execs + 1 |>
+                  | Jmp e        => (case bil_eval_exp e newenviron of
+                        (Int addr) =>
+                         state with <| pco := SOME (<| label := (Address addr) ; index := 0 |>) ; execs := state.execs + 1 |>
+                         | _ =>  state with <| pco := NONE ; debug := (debug_concat ["Wrong exp in jmp "; bil_stmt_to_string stmt])::state.debug ; execs := state.execs + 1 |>)
                   | CJmp e l1 l2 => if (bil_eval_exp e newenviron) = Int 1b
                                     then state with <| pco := SOME (<| label := l1 ; index := 0 |>) ; execs := state.execs + 1 |>
                                     else state with <| pco := SOME (<| label := l2 ; index := 0 |>) ; execs := state.execs + 1 |>
@@ -1017,6 +1020,7 @@ val bil_exec_step_def = Define `bil_exec_step state = case state.pco of
 
 (* Multiple execution of step *)
 val bil_exec_step_n_def = Define `bil_exec_step_n state (n:num) =
+  if state.pco = NONE then state else
   if (n = 0)
     then state
     else bil_exec_step_n (bil_exec_step state) (n - 1)
