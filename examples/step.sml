@@ -243,10 +243,14 @@ List.foldl (fn (id, x) =>
 "7900001f"; 11;
 (* fail due to alignemtn of R0 *)
 
+val id = 1;
 val id = 28;
 val id = 70;
+val id = 19;
 val x = 1;
+val (instr, pc_value) = (List.nth(ops, id));
 val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
+
 val thm = List.hd thms;
 val goal = generate_sim_goal thms;
 prove (``^goal``,
@@ -266,12 +270,12 @@ prove (``^goal``,
 val inst = `MOV X1, #1`;
 val code = arm8AssemblerLib.arm8_code `MOV X1, #1`;
 val instr = (hd code);
-val instr = "79000001";
+val instr = "54fffe8c";
 
 val pc_value = ``32w:word64``;
 (* 2.11 seconds *)
   val fault_wt_mem = ``\x.x<+0x100000w:word64``;
-  val (p, certs, [step]) = tc_stmt_arm8_hex instr;
+val (p, certs, [step]) = tc_stmt_arm8_hex instr;
   val (sts, sts_ty) = listSyntax.dest_list p;
   (* manually add the memory fault *)
   val (memory_check_needed, assert_stm, assert_cert) = generate_assert step fault_wt_mem;
@@ -286,7 +290,20 @@ val pc_value = ``32w:word64``;
   val s1 = (optionSyntax.dest_some o snd o dest_eq o concl) step;
   val new_pc_val = (snd o dest_eq o concl o EVAL) ``^s1.PC``;
   val new_pc_val1 = (snd o dest_eq o concl o (SIMP_CONV (srw_ss()) [ASSUME ``s.PC = ^pc_value``])) new_pc_val;
-  val sts = List.concat [sts, [``Jmp (Const (Reg64 (^new_pc_val1)))``]];
+  val (sts, certs) = if wordsSyntax.is_word_literal new_pc_val1 then
+                        (List.concat [sts, [``Jmp (Const (Reg64 (^new_pc_val1)))``]],
+                        List.concat [certs, [ASSUME ``T``]])
+                     else if is_cond new_pc_val1 then
+                        let val (c,v1,v2) = dest_cond new_pc_val1
+                            val (b_c, _, t_c) = tc_exp_arm8 c
+                            val (b_v1, _, t_v1) = tc_exp_arm8 v1
+                            val (b_v2, _, t_v2) = tc_exp_arm8 v2
+                            val ncerts = LIST_CONJ(List.map (UNDISCH_ALL o SPEC_ALL) [t_c, t_v1, t_v2]);
+                            val ncerts = ((GEN ``env:environment``) o (GEN ``s:arm8_state``) o DISCH_ALL) ncerts;
+                         in (List.concat [sts, [``CJmp ^b_c ^b_v1 ^b_v2``]],
+                             List.concat [certs, [ncerts]]) end
+                     else (sts, certs)
+  (* standard section *)
   val p = listSyntax.mk_list(sts,sts_ty);
 	val goal = tc_gen_goal p certs step pc_value fault_wt_mem;
 	val thm = prove(``^goal``,
@@ -294,7 +311,7 @@ val pc_value = ``32w:word64``;
 			THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)
 		        THEN (FULL_SIMP_TAC (srw_ss()) [])
 			(* for every instruction, plus 1 since the fixed jump has no certificate *)
-			THEN (MAP_EVERY (ONE_EXEC_MAIN certs p pc_value) (List.tabulate ((List.length certs) + 1, fn x => x+1)))
+			THEN (MAP_EVERY (ONE_EXEC_MAIN certs p pc_value) (List.tabulate (List.length certs), fn x => x+1)))
 			(* Computation completed *)
 			THEN (FULL_SIMP_TAC (srw_ss()) [Once bil_exec_step_n_def])
 			THEN DISCH_TAC
@@ -309,7 +326,7 @@ val pc_value = ``32w:word64``;
             )
             (get_side_step_cnd (hyp step)))
 			(* use the step theorem *)
-      THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [ASSUME ``s.PC=^pc_value``] (DISCH_ALL step))))
+			THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [ASSUME ``s.PC=^pc_value``] (DISCH_ALL step))))
 			THEN (FULL_SIMP_TAC (srw_ss()) [])
       (* Manually abbreviate the memory condition *)
       THEN (Q.ABBREV_TAC `mem_cond = ^((snd o dest_eq o concl o EVAL) ``∀a. (\x.x<+0x100000w:word64) a ⇒ (s.MEM a = s1.MEM a)``)`)
@@ -327,11 +344,13 @@ val pc_value = ``32w:word64``;
       THEN (UNABBREV_ALL_TAC)
       THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def])
       THEN (FULL_SIMP_TAC (srw_ss()) [])
-    );
+
+);
 
 
       THEN (ONE_EXEC_ASSERT certs p pc_value 1)
 
+      THEN (ONE_EXEC_MAIN certs p pc_value 1)
       THEN (ONE_EXEC_MAIN certs p pc_value 2)
       THEN (ONE_EXEC_MAIN certs p pc_value 3)
       THEN (ONE_EXEC_MAIN certs p pc_value 4)
@@ -344,13 +363,30 @@ val pc_value = ``32w:word64``;
 val [th] = arm8thl;
 
 
-val i = 1;
+val i = 6;
 val prog = p;
 val curr_goal = ``
 (bil_exec_step_n
-   <|pco := SOME <|label := Address (Reg64 32w); index := 0|>;
-     pi := prog; environ := env; termcode := Unknown; debug := d1;
-     execs := e1|> 6 =
+   <|pco := SOME <|label := Address (Reg64 32w); index := 5|>;
+     pi := prog;
+     environ :=
+       (λc.
+          if "arm8_state_PC" = c then
+            (Reg Bit64,
+             Int
+               (Reg64
+                  (if (s.PSTATE.N ⇎ s.PSTATE.V) ∨ s.PSTATE.Z then 36w
+                   else 0xFFFFFFFFFFFFFFF0w)))
+          else if "tmp_ProcState_Z" = c then
+            (Reg Bit1,Int (bool2b s.PSTATE.Z))
+          else if "tmp_ProcState_V" = c then
+            (Reg Bit1,Int (bool2b s.PSTATE.V))
+          else if "tmp_ProcState_N" = c then
+            (Reg Bit1,Int (bool2b s.PSTATE.N))
+          else if "tmp_arm8_state_PC" = c then
+            (Reg Bit64,Int (Reg64 32w))
+          else env c); termcode := Unknown; debug := d1;
+     execs := e1 + 1 + 1 + 1 + 1 + 1|> 2 =
  bs1) ⇒
 ((bs1.environ "" = (NoType,Unknown)) ∧
  (bs1.environ "R0" = (Reg Bit64,Int (Reg64 (s1.REG 0w)))) ∧
@@ -379,8 +415,7 @@ val curr_goal = ``
     (bs1.environ "arm8_state_MEM" = (MemByte Bit64,Mem Bit64 m)) ∧
     ∀a. m (Reg64 a) = Reg8 (s1.MEM a)) ∧ ¬s1.SCTLR_EL1.E0E ∧
  (s1.PSTATE.EL = 0w) ∧ (s1.exception = NoException) ∧
- Aligned (s1.SP_EL0,8) ∧ ¬s1.SCTLR_EL1.SA0 ∧ ¬s1.TCR_EL1.TBI0 ∧
- ¬s1.TCR_EL1.TBI1 ∧
+ ¬s1.SCTLR_EL1.SA0 ∧ ¬s1.TCR_EL1.TBI0 ∧ ¬s1.TCR_EL1.TBI1 ∧
  (bs1.pco = SOME <|label := Address (Reg64 s1.PC); index := 0|>)) ∧
 (∀a. a <₊ 0x100000w ⇒ (s.MEM a = s1.MEM a)) ∨ (bs1.pco = NONE)
 ``;

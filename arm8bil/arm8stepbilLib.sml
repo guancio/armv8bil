@@ -308,12 +308,19 @@ fun arm8_branch_thm_join thl = case thl of
         val hyps = list_intersect (hyp th1) (hyp th2);
         val c1 = (optionSyntax.dest_some o snd o dest_comb o concl) th1;
         val c2 = (optionSyntax.dest_some o snd o dest_comb o concl) th2;
-        val a8s' = rewrite_a8s_branch_upd (c1, c2) (contr_pairs_conj1 conds);
+        val cnd1 = list_mk_conj (List.map fst conds);
+        val cnd2 = list_mk_conj (List.map snd conds);
+        val tmp_cnd = prove(``^cnd2 = (¬^cnd1)``, (FULL_SIMP_TAC (srw_ss()) []));
+        val a8s' = rewrite_a8s_branch_upd (c1, c2) cnd1;
         val conc = ``(NextStateARM8 s = SOME (^a8s'))``;
         val th = List.foldl (fn (a, b) => ``^a ==> (^b)``) conc hyps;
-        val tac = (RW_TAC (pure_ss) []) THENL [FULL_SIMP_TAC (srw_ss()) [th1], FULL_SIMP_TAC (srw_ss()) [th2]];
+        val tac = (ASSUME_TAC tmp_cnd) THEN (RW_TAC (pure_ss) []) THENL [FULL_SIMP_TAC (srw_ss()) [th1], FULL_SIMP_TAC (srw_ss()) [th2]];
       in
-        [UNDISCH_ALL (tryprove(th, tac))]
+        [prove(``^th``,
+           (ASSUME_TAC tmp_cnd) THEN (ASSUME_TAC (DISCH_ALL th1)) THEN (ASSUME_TAC (DISCH_ALL th2)) 
+           THEN (RW_TAC (pure_ss) [])
+           THEN (FULL_SIMP_TAC (srw_ss()) []))
+        ]
       end
   | _ => thl
 ;

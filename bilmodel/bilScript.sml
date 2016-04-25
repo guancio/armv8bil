@@ -102,7 +102,7 @@ Datatype `bil_stmt_t =
   | Declare bil_var_t
   | Assign  string bil_exp_t
   | Jmp     bil_exp_t
-  | CJmp    bil_exp_t bil_label_t bil_label_t
+  | CJmp    bil_exp_t bil_exp_t bil_exp_t
   | Halt    bil_exp_t
   | Assert  bil_exp_t
 `;
@@ -1006,9 +1006,15 @@ val bil_exec_step_def = Define `bil_exec_step state = case state.pco of
                         (Int addr) =>
                          state with <| pco := SOME (<| label := (Address addr) ; index := 0 |>) ; execs := state.execs + 1 |>
                          | _ =>  state with <| pco := NONE ; debug := (debug_concat ["Wrong exp in jmp "; bil_stmt_to_string stmt])::state.debug ; execs := state.execs + 1 |>)
-                  | CJmp e l1 l2 => if (bil_eval_exp e newenviron) = Int 1b
-                                    then state with <| pco := SOME (<| label := l1 ; index := 0 |>) ; execs := state.execs + 1 |>
-                                    else state with <| pco := SOME (<| label := l2 ; index := 0 |>) ; execs := state.execs + 1 |>
+                  | CJmp e e1 e2 => if (bil_eval_exp e newenviron) = Int 1b
+                         then (case bil_eval_exp e1 newenviron of
+                            (Int addr) =>
+                              state with <| pco := SOME (<| label := (Address addr) ; index := 0 |>) ; execs := state.execs + 1 |>
+                             | _ =>  state with <| pco := NONE ; debug := (debug_concat ["Wrong exp in jmp "; bil_stmt_to_string stmt])::state.debug ; execs := state.execs + 1 |>)
+                         else (case bil_eval_exp e2 newenviron of
+                            (Int addr) =>
+                              state with <| pco := SOME (<| label := (Address addr) ; index := 0 |>) ; execs := state.execs + 1 |>
+                             | _ =>  state with <| pco := NONE ; debug := (debug_concat ["Wrong exp in jmp "; bil_stmt_to_string stmt])::state.debug ; execs := state.execs + 1 |>)
                   | Declare _    => state with <| pco := (bil_pcnext state.pi state.pco) ; environ := newenviron ; execs := state.execs + 1 |>
                   | Assign _ _   => state with <| pco := (bil_pcnext state.pi state.pco) ; environ := newenviron ; execs := state.execs + 1 |>
                   | Assert e     => if (bil_eval_exp e newenviron) = Int 1b
