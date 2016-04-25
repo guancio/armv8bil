@@ -14,6 +14,10 @@ open bilTheory arm8bilTheory;
 open arm8bilLib;
 open arm8stepbilLib;
 
+(* prevent >>>~ to become >>> *)
+(* HOL_Interactive.toggle_quietdec(); *)
+val myss = simpLib.remove_ssfrags (srw_ss()) ["word shift"];
+(* HOL_Interactive.toggle_quietdec(); *)
 
 (* **************************************** *)
 (* INSTRUCTION LIFTER *)
@@ -50,45 +54,6 @@ val bool_cast_simpl4_tm = prove (``(!v1 . (∃v. bool2b v1 = bool2b v))``,
  ]);
 
 
-(* To use a normal form, we prefer to express casts as bool2b x *)
-(* instead of if x then v1 else v2 *)
-fun ABBREV_NEW_ENV n (asl, g) =
-    let val var_name = mk_var(concat["env", Int.toString n], ``:environment``)
-	val (x,_) = dest_imp g
-	val (s,_) = dest_eq x
-	val (f, [s,n]) = strip_comb s
-        (* eval tac was simplifying too much *)
-        val thm_rev = (SIMP_CONV (srw_ss()) [] ``^s.environ``)
-	val nenv = (snd o dest_eq o concl) thm_rev
-       in
-	(* I must ensure that the same simplification is applied to the env *)
-	   ((SIMP_TAC (srw_ss()) []) THEN
-	   (Q.ABBREV_TAC `^var_name=^nenv`)) (asl,g)
-    end;
-
-
-
-
-
-fun PROCESS_ONE_ASSIGNMENT certs n =
-    let val var_name = mk_var(concat["env", Int.toString n], ``:environment``)
-	val th_just = (List.nth (certs, n-1))
-	val th1 = SPEC ``^var_name`` th_just
-	val th2 = if is_forall (concl th1) then SPEC ``s:arm8_state`` th1 else th1
-    in
-	(ABBREV_NEW_ENV n)
-	THEN (FULL_SIMP_TAC (srw_ss()) [Once bil_exec_step_n_def])
-	THEN (computeLib.RESTR_EVAL_TAC [``bil_eval_exp``, ``bil_exec_step_n``, ``bool2b``])
-	THEN (FULL_SIMP_TAC (srw_ss()) [])
-	THEN (ASSUME_TAC th2)
-	THEN (REV_FULL_SIMP_TAC (srw_ss()) [Abbr `^var_name`])
-	(* bool type simplification *)
-	THEN (FULL_SIMP_TAC (srw_ss()) [bool_cast_simpl2_tm])
-	THEN (FULL_SIMP_TAC (srw_ss()) [combinTheory.UPDATE_def])
-	THEN (computeLib.RESTR_EVAL_TAC [``bil_eval_exp``, ``bil_exec_step_n``, ``bool2b``])
-	THEN (FULL_SIMP_TAC (srw_ss()) [bool_cast_simpl2_tm])
-    end;
-
 val sim_invariant_def = Define `sim_invariant s env pco =
    (env "" = (NoType,Unknown)) ∧
    (env "R0" = (Reg Bit64,Int (Reg64 (s.REG 0w)))) ∧
@@ -117,16 +82,39 @@ val sim_invariant_def = Define `sim_invariant s env pco =
       (env "arm8_state_MEM" = (MemByte Bit64,Mem Bit64 m)) ∧
       ∀a. m (Reg64 a) = Reg8 (s.MEM a)) /\
    ¬s.SCTLR_EL1.E0E ∧ (s.PSTATE.EL = 0w) ∧ (s.exception = NoException) /\
-   (Aligned (s.SP_EL0,8)) /\
+   (* remove from here and use assertions *)
    ¬s.SCTLR_EL1.SA0 /\
    ¬s.TCR_EL1.TBI0 /\
    ¬s.TCR_EL1.TBI1 /\
    (pco = SOME <|label := Address (Reg64 s.PC); index := 0|>)
       `;
 
+fun is_standard_step_precnd tm =
+    let val _ = match_term ``s.MEM a = v`` tm in true end
+    handle _ =>
+      if       tm = ``¬s.SCTLR_EL1.E0E`` orelse tm = ``(s.PSTATE.EL = 0w)``
+        orelse tm = ``(s.exception = NoException)`` orelse tm = ``¬s.SCTLR_EL1.SA0``
+        orelse tm = ``¬s.TCR_EL1.TBI0`` orelse tm = ``¬s.TCR_EL1.TBI1``
+        orelse tm = ``Aligned (s.PC,4)``
+      then true
+      else false;
+
+fun remove_side_step_cnd tms =
+    (List.filter is_standard_step_precnd tms);
+fun get_side_step_cnd tms =
+    (List.filter (not o is_standard_step_precnd) tms);
+
+fun extract_other_cnd_from_step step =
+ let val other = get_side_step_cnd (hyp step)
+ in if other = [] then ``T`` else list_mk_conj other end;
+
+
+
 fun tc_gen_goal p certs step pc_value fault_wt_mem_cnd =
-      let val goal = ``
-        (^(list_mk_conj (hyp step))) ==>
+      let
+      val h = remove_side_step_cnd (hyp step)
+      val goal = ``
+        (^(list_mk_conj h)) ==>
         (s.PC = ^pc_value) ==>
         (sim_invariant s env pco) ==>
        (?n. ((INDEX_FIND 0 (\(x:bil_block_t). x.label = (Address (Reg64 (s.PC)))) prog) =
@@ -148,33 +136,6 @@ fun tc_gen_goal p certs step pc_value fault_wt_mem_cnd =
       in
 	  goal
       end;
-
-(* prevent >>>~ to become >>> *)
-(* HOL_Interactive.toggle_quietdec(); *)
-val myss = simpLib.remove_ssfrags (srw_ss()) ["word shift"];
-(* HOL_Interactive.toggle_quietdec(); *)
-
-fun tc_one_instruction inst =
-    let val code = arm8AssemblerLib.arm8_code inst;
-	val instr = (hd code);
-	val (p, certs, [step]) = tc_stmt_arm8_hex instr;
-	val goal = tc_gen_goal p certs step ``0w:word64`` ``\x:word64.T``;
-	val thm = prove(``^goal``,
-			(DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)
-		        THEN (FULL_SIMP_TAC (srw_ss()) [])
-			(* for every instruction *)
-			THEN (MAP_EVERY (PROCESS_ONE_ASSIGNMENT certs) (List.tabulate (List.length certs, fn x => x+1)))
-			(* Computation completed *)
-			THEN (FULL_SIMP_TAC (srw_ss()) [Once bil_exec_step_n_def])
-			THEN DISCH_TAC
-			(* use the step theorem *)
-			THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [] (DISCH_ALL step))))
-			THEN (FULL_SIMP_TAC (srw_ss()) [])
-			THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def, bool2b_def])
-		       );
-    in
-	thm
-    end;
 
 
 (* Try to speed up the computation *)
@@ -752,17 +713,32 @@ fun extract_upds byte_val upds =
     else upds;
 
 
+fun generate_assert_side side_cnd =
+  if side_cnd = ``T`` then (false, [], [])
+  else
+  let val side_cnd = (snd o dest_eq o concl o (REWRITE_CONV  [align_conversion_thm])) side_cnd
+                      handle _ => side_cnd
+      val (bexp_assert, _,  cert_assert) = tc_exp_arm8 side_cnd
+      (* to fix unchanged *)
+      val bexp_assert = ((snd o dest_eq o concl o (SIMP_CONV (srw_ss()) [r2s_def])) bexp_assert)
+                        handle _ => bexp_assert
+      val cert_assert = SIMP_RULE (srw_ss()) [r2s_def] cert_assert;
+      in (true, [``Assert ^bexp_assert``], [cert_assert])
+  end;
+
 fun generate_assert step fault_wt_mem =
   let val s1 = (optionSyntax.dest_some o snd o dest_eq o concl) step;
       val byte_val = (snd o dest_eq o concl o EVAL) ``^s1.MEM(a)``;
       val upds = extract_upds byte_val [];
       val side_conds_wt_mem = List.map (fn tm=> (snd o dest_eq o concl o EVAL) ``~((^fault_wt_mem) ^tm)``) upds;
-  in if side_conds_wt_mem = [] then (false, [], [])
+  in if side_conds_wt_mem = [] then generate_assert_side ``T``
      else
-      let val side_cond_wt_mem = list_mk_conj side_conds_wt_mem;
-          val (bexp_wt_assert, _,  cert_wt_assert) = tc_exp_arm8  side_cond_wt_mem;
-      in (true, [``Assert ^bexp_wt_assert``], [cert_wt_assert]) end
+      let val side_cond_wt_mem = list_mk_conj side_conds_wt_mem;     
+      in generate_assert_side side_cond_wt_mem end
   end;
+
+
+
 
 fun tc_one_instruction2_by_bin instr pc_value fault_wt_mem =
     let val (p, certs, [step]) = tc_stmt_arm8_hex instr;
@@ -771,6 +747,11 @@ fun tc_one_instruction2_by_bin instr pc_value fault_wt_mem =
   val (memory_check_needed, assert_stm, assert_cert) = generate_assert step fault_wt_mem;
   val sts = List.concat [assert_stm, sts];
   val certs = List.concat [assert_cert, certs];
+  (* other conditions: like memory alignment *)
+  val side_cnd = extract_other_cnd_from_step step;
+  val (side_check_needed, assert_stm1, assert_cert1) = generate_assert_side side_cnd;
+  val sts = List.concat [assert_stm1, sts];
+  val certs = List.concat [assert_cert1, certs];
   (* manually add the final jump *)
   val s1 = (optionSyntax.dest_some o snd o dest_eq o concl) step;
   val new_pc_val = (snd o dest_eq o concl o EVAL) ``^s1.PC``;
@@ -788,6 +769,16 @@ fun tc_one_instruction2_by_bin instr pc_value fault_wt_mem =
 			(* Computation completed *)
 			THEN (FULL_SIMP_TAC (srw_ss()) [Once bil_exec_step_n_def])
 			THEN DISCH_TAC
+      (* Prove that every assumption of the step theorem is met *)
+      THEN (MAP_EVERY (fn tm =>
+              (SUBGOAL_THEN tm ASSUME_TAC)
+              THENL [
+                (FULL_SIMP_TAC (srw_ss()) [align_conversion_thm, markerTheory.Abbrev_def]),
+                (* foced to do a full simp_tac due to the next simplification *)
+                (FULL_SIMP_TAC (myss) [])
+              ]
+            )
+            (get_side_step_cnd (hyp step)))
 			(* use the step theorem *)
 			THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [ASSUME ``s.PC=^pc_value``] (DISCH_ALL step))))
 			THEN (FULL_SIMP_TAC (srw_ss()) [])

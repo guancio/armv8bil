@@ -51,7 +51,6 @@ fun extract_code thm =
     in List.hd ex end;
         
 
-
 fun extract_side_cond thm = 
     let val th1 =  List.foldl (fn (tm,thm) =>
             (let val cs = strip_conj tm in
@@ -240,10 +239,12 @@ List.foldl (fn (id, x) =>
 ) 1 ids;
 
 
+
 "7900001f"; 11;
 (* fail due to alignemtn of R0 *)
 
-val id = 11;
+val id = 28;
+val id = 70;
 val x = 1;
 val thms = [tc_one_instruction2_by_bin (fst (List.nth(ops, id))) (snd (List.nth(ops, id))) ``\x.x<+0x100000w:word64``];
 val thm = List.hd thms;
@@ -265,9 +266,7 @@ prove (``^goal``,
 val inst = `MOV X1, #1`;
 val code = arm8AssemblerLib.arm8_code `MOV X1, #1`;
 val instr = (hd code);
-val instr = "d10103ff";
-val instr = "f9000fe0";
-val instr = "d37ff800";
+val instr = "79000001";
 
 val pc_value = ``32w:word64``;
 (* 2.11 seconds *)
@@ -278,6 +277,11 @@ val pc_value = ``32w:word64``;
   val (memory_check_needed, assert_stm, assert_cert) = generate_assert step fault_wt_mem;
   val sts = List.concat [assert_stm, sts];
   val certs = List.concat [assert_cert, certs];
+  (* other conditions: like memory alignment *)
+  val side_cnd = extract_other_cnd_from_step step;
+  val (side_check_needed, assert_stm1, assert_cert1) = generate_assert_side side_cnd;
+  val sts = List.concat [assert_stm1, sts];
+  val certs = List.concat [assert_cert1, certs];
   (* manually add the final jump *)
   val s1 = (optionSyntax.dest_some o snd o dest_eq o concl) step;
   val new_pc_val = (snd o dest_eq o concl o EVAL) ``^s1.PC``;
@@ -294,8 +298,18 @@ val pc_value = ``32w:word64``;
 			(* Computation completed *)
 			THEN (FULL_SIMP_TAC (srw_ss()) [Once bil_exec_step_n_def])
 			THEN DISCH_TAC
+      (* Prove that every assumption of the step theorem is met *)
+      THEN (MAP_EVERY (fn tm =>
+              (SUBGOAL_THEN tm ASSUME_TAC)
+              THENL [
+                (FULL_SIMP_TAC (srw_ss()) [align_conversion_thm, markerTheory.Abbrev_def]),
+                (* foced to do a full simp_tac due to the next simplification *)
+                (FULL_SIMP_TAC (myss) [])
+              ]
+            )
+            (get_side_step_cnd (hyp step)))
 			(* use the step theorem *)
-			THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [ASSUME ``s.PC=^pc_value``] (DISCH_ALL step))))
+      THEN (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE myss [ASSUME ``s.PC=^pc_value``] (DISCH_ALL step))))
 			THEN (FULL_SIMP_TAC (srw_ss()) [])
       (* Manually abbreviate the memory condition *)
       THEN (Q.ABBREV_TAC `mem_cond = ^((snd o dest_eq o concl o EVAL) ``∀a. (\x.x<+0x100000w:word64) a ⇒ (s.MEM a = s1.MEM a)``)`)
@@ -334,9 +348,9 @@ val i = 1;
 val prog = p;
 val curr_goal = ``
 (bil_exec_step_n
-   <|pco := SOME <|label := Address (Reg64 0w); index := 0|>;
+   <|pco := SOME <|label := Address (Reg64 32w); index := 0|>;
      pi := prog; environ := env; termcode := Unknown; debug := d1;
-     execs := e1|> 7 =
+     execs := e1|> 6 =
  bs1) ⇒
 ((bs1.environ "" = (NoType,Unknown)) ∧
  (bs1.environ "R0" = (Reg Bit64,Int (Reg64 (s1.REG 0w)))) ∧
@@ -365,7 +379,9 @@ val curr_goal = ``
     (bs1.environ "arm8_state_MEM" = (MemByte Bit64,Mem Bit64 m)) ∧
     ∀a. m (Reg64 a) = Reg8 (s1.MEM a)) ∧ ¬s1.SCTLR_EL1.E0E ∧
  (s1.PSTATE.EL = 0w) ∧ (s1.exception = NoException) ∧
- Aligned (s1.SP_EL0,8) ∧ ¬s1.SCTLR_EL1.SA0) ∧
+ Aligned (s1.SP_EL0,8) ∧ ¬s1.SCTLR_EL1.SA0 ∧ ¬s1.TCR_EL1.TBI0 ∧
+ ¬s1.TCR_EL1.TBI1 ∧
+ (bs1.pco = SOME <|label := Address (Reg64 s1.PC); index := 0|>)) ∧
 (∀a. a <₊ 0x100000w ⇒ (s.MEM a = s1.MEM a)) ∨ (bs1.pco = NONE)
 ``;
 
