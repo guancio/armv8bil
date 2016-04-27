@@ -288,14 +288,15 @@ val single_step_assign_mem64_thm = prove( ``
 
 
 val static_jmp_thm = prove( ``
-!pc_value1 pc_value2 env past_steps lbl n l i.
+!pc_value env past_steps e v lbl n l i.
 (lbl <> Label "") ==>
 (n > 0) ==>
-((EL i l) = (Jmp (Const (Reg64 pc_value2)))) ==>
+((EL i l) = (Jmp e)) ==>
 ((LENGTH l) = (i+1)) ==>
 (env "" = (NoType,Unknown)) ==>
+((bil_eval_exp e env) = Int (Reg64 v)) ==>
 (?n. ((INDEX_FIND 0 (\(x:bil_block_t). x.label = lbl) prog) =
-			SOME(n, <| label:= (Address (Reg64 pc_value1));
+			SOME(n, <| label:= (Address (Reg64 pc_value));
 				 statements:= l|>))
 ) ==>
 (
@@ -305,7 +306,7 @@ val static_jmp_thm = prove( ``
      environ := env; termcode := Unknown; debug := d1; execs := past_steps|>
    n) = 
 (bil_exec_step_n
-   <|pco := SOME <|label := Address (Reg64 pc_value2); index := 0|>;
+   <|pco := SOME <|label := Address (Reg64 v); index := 0|>;
      pi := prog;
      environ :=env; termcode := Unknown; debug := d1;
      execs := past_steps + 1|> (n-1))
@@ -320,7 +321,7 @@ val static_jmp_thm = prove( ``
        THEN (FULL_SIMP_TAC (arith_ss) [])
        THEN (FULL_SIMP_TAC (srw_ss()) [bil_exec_step_def, bil_get_program_block_info_by_label_def])
        THEN (FULL_SIMP_TAC (arith_ss) [])
-       THEN (computeLib.RESTR_EVAL_TAC [``bil_exec_step_n``, ``bool2b``])
+       THEN (computeLib.RESTR_EVAL_TAC [``bil_exec_step_n``, ``bool2b``, ``bil_eval_exp``])
        THEN (FULL_SIMP_TAC (srw_ss()) [])
 );
 
@@ -564,15 +565,23 @@ let val exec_term = (fst o dest_eq o fst o dest_imp) curr_goal;
     val (sts1, _) = listSyntax.dest_list sts;
     val statement = List.nth(sts1, i-1);
     val (operation, [addr_exp]) = strip_comb statement;
-    val (_, [addr]) = strip_comb addr_exp;
-    val (_, [addr_w]) = strip_comb addr;
-    val th1 = SPECL [pc_value, addr_w, env, ex, lbl, steps] static_jmp_thm;
-    val th2 = (SPECL [sts, numSyntax.mk_numeral(Arbnum.fromInt (i-1))]) th1;
-    val lbl_not_empty_thm = prove(``^((fst o dest_imp o concl) th2)``, (FULL_SIMP_TAC (srw_ss()) []));
-    val length_minus_i_not_zero_thm = prove(``^((fst o dest_imp o snd o dest_imp o concl) th2)``, (FULL_SIMP_TAC (arith_ss) []));
-    val hd_thm = prove (``(EL ^(numSyntax.mk_numeral(Arbnum.fromInt(i-1))) ^sts = Jmp (Const (Reg64 (^addr_w))))``, (FULL_SIMP_TAC (srw_ss()) []));
+    val th_just = (List.nth (certs, i-1));
+    val th_just1 = SPEC env th_just;
+    val th_just2 = if is_forall (concl th_just1) then SPEC ``s:arm8_state`` th_just1 else th_just1;
+    val th_just3 = (SIMP_RULE (srw_ss()) [combinTheory.UPDATE_def] th_just2);
+    (* For constant PC *)
+    val th_just3Bis = REWRITE_RULE [ASSUME ``s.PC = ^pc_value``] th_just3;
+    val th_just4 = (UNDISCH_ALL th_just3Bis);
+    val addr_val = (hd o snd o strip_comb o hd o snd o strip_comb o snd o dest_eq o concl) th_just4;
+    val th1 = SPECL [pc_value, env, ex] static_jmp_thm;
+    val th2 = SPECL [addr_exp, addr_val] th1;
+    val th3 = SPECL [lbl, steps] th2;
+    val th4 = (SPECL [sts, numSyntax.mk_numeral(Arbnum.fromInt (i-1))]) th3;
+    val lbl_not_empty_thm = prove(``^((fst o dest_imp o concl) th4)``, (FULL_SIMP_TAC (srw_ss()) []));
+    val length_minus_i_not_zero_thm = prove(``^((fst o dest_imp o snd o dest_imp o concl) th4)``, (FULL_SIMP_TAC (arith_ss) []));
+    val hd_thm = prove (``(EL ^(numSyntax.mk_numeral(Arbnum.fromInt(i-1))) ^sts = Jmp ^addr_exp)``, (FULL_SIMP_TAC (srw_ss()) []));
     val length_thm = prove (``(LENGTH ^sts = ^(numSyntax.mk_numeral(Arbnum.fromInt(i-1)))+1)``, (FULL_SIMP_TAC (srw_ss()) []));
-    val th3 = (MP (MP (MP (MP th2 lbl_not_empty_thm) length_minus_i_not_zero_thm) hd_thm) length_thm);
+    val th3 = (MP (MP (MP (MP th4 lbl_not_empty_thm) length_minus_i_not_zero_thm) hd_thm) length_thm);
     (* For constant PC *)
     val th3Bis = REWRITE_RULE [ASSUME ``s.PC = ^pc_value``] th3;
     val th4 = UNDISCH_ALL th3Bis;
@@ -587,6 +596,8 @@ in
           (PAT_ASSUM ``s.PC=^pc_value`` (fn thm =>
                    (RULE_ASSUM_TAC (REWRITE_RULE [thm]))
                    THEN (ASSUME_TAC thm)))
+          THEN (ASSUME_TAC th_just4)
+          THEN (FULL_SIMP_TAC (bool_ss) [])
           THEN (fn (asl,goal) =>
                (MAP_EVERY (fn tm =>
                               (* The hypotesis is in the assumptions *)
@@ -876,10 +887,14 @@ fun tc_one_instruction2_by_bin instr pc_value fault_wt_mem =
   (* manually add the final jump *)
   val s1 = (optionSyntax.dest_some o snd o dest_eq o concl) step;
   val new_pc_val = (snd o dest_eq o concl o EVAL) ``^s1.PC``;
-  val new_pc_val1 = (snd o dest_eq o concl o (SIMP_CONV (srw_ss()) [ASSUME ``s.PC = ^pc_value``])) new_pc_val;
+  (* as usual this can be unchanged *)
+  val new_pc_val1 = (snd o dest_eq o concl o (SIMP_CONV (srw_ss()) [ASSUME ``s.PC = ^pc_value``])) new_pc_val
+                    handle _ => new_pc_val;
   val (sts, certs) = if wordsSyntax.is_word_literal new_pc_val1 then
-                        (List.concat [sts, [``Jmp (Const (Reg64 (^new_pc_val1)))``]],
-                        List.concat [certs, [ASSUME ``T``]])
+                        let val (b_v1, _, t_v1) = tc_exp_arm8 new_pc_val1
+                        in
+                          (List.concat [sts, [``Jmp (Const (Reg64 (^new_pc_val1)))``]],
+                           List.concat [certs, [t_v1]]) end
                      else if is_cond new_pc_val1 then
                         let val (c,v1,v2) = dest_cond new_pc_val1
                             val (b_c, _, t_c) = tc_exp_arm8 c
@@ -889,7 +904,13 @@ fun tc_one_instruction2_by_bin instr pc_value fault_wt_mem =
                             val ncerts = ((GEN ``env:environment``) o (GEN ``s:arm8_state``) o DISCH_ALL) ncerts;
                          in (List.concat [sts, [``CJmp ^b_c ^b_v1 ^b_v2``]],
                              List.concat [certs, [ncerts]]) end
-                     else (sts, certs)
+                     else
+                        let val (b_v1, _, t_v1) = tc_exp_arm8 new_pc_val1
+                            val b_v1 = ((snd o dest_eq o concl o (SIMP_CONV (srw_ss()) [r2s_def])) b_v1)
+                             handle _ => b_v1;
+                            val t_v1 = SIMP_RULE (srw_ss()) [r2s_def] t_v1;
+                            in (List.concat [sts, [``Jmp ^b_v1``]],
+                              List.concat [certs, [t_v1]]) end
   (* standard section *)
   val p = listSyntax.mk_list(sts,sts_ty);
 	val goal = tc_gen_goal p certs step pc_value fault_wt_mem;
