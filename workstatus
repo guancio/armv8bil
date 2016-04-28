@@ -12,3 +12,46 @@ status: ok, messy solution in a separate file
 Andreas
 
 
+
+(* ******************** *)
+(* ERROR WITH 13047c00 *)
+(* problem related to word_bit on 32 bits *)
+(* ******************** *)
+val [t] = arm8_step_hex "13047c00";
+val s1 = ((optionSyntax.dest_some o snd o dest_comb o concl) t);
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.REG 0w``;
+val exp = (snd o dest_eq o concl o (SIMP_CONV (srw_ss()) [ASSUME ``imm=0xFFFFFFFFw:word32``, ASSUME ``x=0xFFFFFFFw:word32``])) exp;
+tc_exp_arm8 exp;
+
+val exp =    ``word_bit (31 :num) (w2w (s.REG (0w :word5)) :word32)``;
+tc_exp_arm8 exp;
+
+(* ******************** *)
+(* ERROR WITH 131f7c20 *)
+(* problem related to word_bit on 32 bits *)
+(* ******************** *)
+val [t] = arm8_step_hex "131f7c20";
+
+val [t] = arm8_step_hex "1ac02020";
+val s1 = ((optionSyntax.dest_some o snd o dest_comb o concl) t);
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.REG 0w``;
+tc_exp_arm8 exp;
+
+(* ******************** *)
+(* ERROR WITH eb1f001f *)
+(* problem related to the Carry flag *)
+(* ******************** *)
+val [t] = arm8_step_hex "eb1f001f";
+val s1 = ((optionSyntax.dest_some o snd o dest_comb o concl) t);
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.PSTATE.C``;
+tc_exp_arm8 exp;
+
+(* ******************** *)
+(* ERROR WITH a9b97bfd *)
+(* Store of two registers, depends on the instruction lifter *)
+(* ******************** *)
+val [t] = arm8_step_hex "a9b97bfd";
+val s1 = ((optionSyntax.dest_some o snd o dest_comb o concl) t);
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.MEM``;
+tc_exp_arm8 exp;
+

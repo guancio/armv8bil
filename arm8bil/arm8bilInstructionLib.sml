@@ -60,6 +60,7 @@ val sim_invariant_def = Define `sim_invariant s env pco =
    (env "R1" = (Reg Bit64,Int (Reg64 (s.REG 1w)))) ∧
    (env "R2" = (Reg Bit64,Int (Reg64 (s.REG 2w)))) ∧
    (env "R3" = (Reg Bit64,Int (Reg64 (s.REG 3w)))) ∧
+   (env "R29" = (Reg Bit64,Int (Reg64 (s.REG 29w)))) ∧
    (env "R30" = (Reg Bit64,Int (Reg64 (s.REG 30w)))) ∧
    (env "ProcState_C" = (Reg Bit1,Int (bool2b s.PSTATE.C))) ∧
    (env "ProcState_N" = (Reg Bit1,Int (bool2b s.PSTATE.N))) ∧
@@ -71,6 +72,7 @@ val sim_invariant_def = Define `sim_invariant s env pco =
    (∃v. env "tmp_R1" = (Reg Bit64,Int (Reg64 v))) ∧
    (∃v. env "tmp_R2" = (Reg Bit64,Int (Reg64 v))) ∧
    (∃v. env "tmp_R3" = (Reg Bit64,Int (Reg64 v))) ∧
+   (∃v. env "tmp_R29" = (Reg Bit64,Int (Reg64 v))) ∧
    (∃v. env "tmp_R30" = (Reg Bit64,Int (Reg64 v))) ∧
    (∃v. env "tmp_ProcState_C" = (Reg Bit1,Int (Reg1 v))) ∧
    (∃v. env "tmp_ProcState_N" = (Reg Bit1,Int (Reg1 v))) ∧
