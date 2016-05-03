@@ -389,6 +389,64 @@ val bits_v2w = store_thm("bits_v2w"
     THEN  (FULL_SIMP_TAC (srw_ss()) [bitstringTheory.word_bits_v2w, bitstringTheory.w2v_v2w])
 );
 
+val word_lsl_v2w_alt = store_thm("word_lsl_v2w_alt"
+  , ``∀ (w :α word) (n :num). w << n = v2w (shiftl (w2v w) n)``
+  ,       (REWRITE_TAC [Once (prove(``w << n = (v2w (w2v w) << n)``, (RW_TAC (srw_ss()) [])))])
+    THEN  (FULL_SIMP_TAC (srw_ss()) [bitstringTheory.word_lsl_v2w])
+);
+
+val shiftl_0 = store_thm("shiftl_0"
+  , ``∀v. shiftl v 0 = v``
+  , EVAL_TAC THEN (FULL_SIMP_TAC (srw_ss()) [])
+);
+
+val MIN_SUB_EQ = store_thm("MIN_SUB_EQ"
+  , ``∀ (n :num) (m :num). MIN n (n - m) = (n - m)``
+  ,       (RW_TAC (arith_ss) [arithmeticTheory.MIN_DEF])
+    THEN  (CCONTR_TAC)
+    THEN  (RW_TAC (arith_ss) [arithmeticTheory.MIN_DEF])
+);
+
+val DROP_SUC = store_thm("DROP_SUC"
+  , ``∀ b v. DROP (SUC b) v = DROP b (DROP 1 v)``
+  ,       (Induct_on `v`)
+    THEN  (SIMP_TAC (arith_ss) [listTheory.DROP_def])
+    THEN  (RW_TAC (arith_ss) [listTheory.DROP_0, listTheory.DROP_def])
+);
+
+val DROP_COMM1 = store_thm("DROP_COMM1"
+  , ``∀ b v. DROP b (DROP 1 v) = DROP 1 (DROP b v)``
+  ,       (Induct_on `v`)
+    THEN  (SIMP_TAC (arith_ss) [listTheory.DROP_def])
+    THEN  (RW_TAC (srw_ss()) [listTheory.DROP_0, listTheory.DROP_def])
+    THEN  (Induct_on `b`)
+    THEN  (SIMP_TAC (arith_ss) [listTheory.DROP_def])
+    THEN  (RW_TAC (arith_ss) [DROP_SUC])
+);
+
+val DROP_COMM = store_thm("DROP_COMM"
+  , ``∀ a b v. DROP b (DROP a v) = DROP a (DROP b v)``
+  ,       (Induct_on `a`)
+    THEN  (RW_TAC (arith_ss) [listTheory.DROP_0])
+    THEN  (Induct_on `b`)
+    THEN  (RW_TAC (arith_ss) [listTheory.DROP_0])
+    THEN  (RW_TAC (pure_ss) [DROP_SUC])
+    THEN  (REWRITE_TAC [Once DROP_COMM1])
+);
+
+val DROP_ADD = store_thm("DROP_ADD"
+  , ``∀ a b v. DROP (a + b) v = DROP a (DROP b v)``
+  ,       (Induct_on `v`)
+    THEN  (SIMP_TAC (arith_ss) [listTheory.DROP_def])
+    THEN  (RW_TAC (arith_ss) [listTheory.DROP_def])
+    THEN  (Induct_on `a`)
+    THEN  (RW_TAC (arith_ss) [listTheory.DROP_0])
+    THEN  (Induct_on `b`)
+    THEN  (RW_TAC (arith_ss) [listTheory.DROP_0])
+    THEN  (RW_TAC (arith_ss) [DROP_SUC, SUC_INC])
+    THEN  (REWRITE_TAC [Once DROP_COMM1])
+);
+
 (* ------------------------------------------------------------------------- *)
 val _ = export_theory();
  
