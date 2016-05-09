@@ -388,6 +388,18 @@ val bits_v2w = store_thm("bits_v2w"
     THEN  (FULL_SIMP_TAC (srw_ss()) [bitstringTheory.word_bits_v2w, bitstringTheory.w2v_v2w])
 );
 
+val extract_v2w_alt = store_thm("extract_v2w_alt"
+  , ``∀ (h :num) (l :num) (w :α word). (dimindex (:β) = SUC h − l) ==> dimindex (:β) < dimindex (:α) ==> (((h >< l) w :β word) = (v2w (field h l (w2v w)) :β word))``
+  , (RW_TAC (srw_ss()) [GSYM bitstringTheory.extract_v2w])
+);
+
+val bits_v2w = store_thm("bits_v2w"
+  , ``∀ (h :num) (l :num) (w :α word). ((h -- l) w = (v2w (field h l (w2v w)) :α word))``
+  ,       (REPEAT GEN_TAC)
+    THEN  (ASSUME_TAC (SPEC_ALL (prove (``∀ (w :α word). ∃ (v :bitstring). (w = v2w v)``, (PROVE_TAC [bitstringTheory.v2w_w2v])))))
+    THEN  (FULL_SIMP_TAC (srw_ss()) [bitstringTheory.word_bits_v2w, bitstringTheory.w2v_v2w])
+);
+
 val word_lsl_v2w_alt = store_thm("word_lsl_v2w_alt"
   , ``∀ (w :α word) (n :num). w << n = v2w (shiftl (w2v w) n)``
   ,       (REWRITE_TAC [Once (prove(``w << n = (v2w (w2v w) << n)``, (RW_TAC (srw_ss()) [])))])
@@ -406,25 +418,55 @@ val MIN_SUB_EQ = store_thm("MIN_SUB_EQ"
     THEN  (RW_TAC (arith_ss) [arithmeticTheory.MIN_DEF])
 );
 
+val DROP_GENLIST = store_thm("DROP_GENLIST"
+  , ``∀n m f. (DROP m (GENLIST f (n + m)) = GENLIST (λt. f (t + m)) n)``
+  ,       (Induct_on `m`)
+    THEN  (EVAL_TAC THEN (SIMP_TAC (arith_ss) []))
+    THEN  (RW_TAC (srw_ss()++ARITH_ss) [arithmeticTheory.ADD1, listTheory.GENLIST_APPEND, arithmeticTheory.LESS_EQ_SUB_LESS])
+    THEN  (REWRITE_TAC [prove(``t + 1 = 1 + t:num``, SIMP_TAC (arith_ss) [arithmeticTheory.ADD_COMM])])
+    THEN  (SIMP_TAC (pure_ss) [listTheory.GENLIST_APPEND, arithmeticTheory.ADD_ASSOC])
+    THEN  (REWRITE_TAC [((ISPEC ``(+) 1 :num -> num``) o (GEN ``g:α -> γ``) o GSYM) combinTheory.o_ABS_R])
+    THEN  (REWRITE_TAC [((ISPEC ``(+) (m + 1) :num -> num``) o (GEN ``g:α -> γ``) o GSYM) combinTheory.o_ABS_R])
+    THEN  (REWRITE_TAC [prove(``(\x. 1 + (x:num)) = SUC``, EVAL_TAC THEN (FULL_SIMP_TAC (arith_ss) [FUN_EQ_CONV ``(+) (1:num) = SUC``]))])
+    THEN  (REWRITE_TAC [prove(``(\x. n + 1 + (x:num)) = SUC o (\x. n + (x:num))``, EVAL_TAC THEN (FULL_SIMP_TAC (arith_ss) [FUN_EQ_CONV ``(+) (n + (1:num)) = SUC o ((+) n)``]))])
+    THEN  (REWRITE_TAC [prove(``(\x. m + x) = (\x. x + (m:num))``, SIMP_TAC (arith_ss) [arithmeticTheory.ADD_COMM])])
+    THEN  (SIMP_TAC (pure_ss) [combinTheory.o_ASSOC, combinTheory.o_ABS_R, (SPECL [``f o SUC``] o GSYM) listTheory.GENLIST_APPEND])
+    THEN  (REWRITE_TAC [(SPEC ``f o SUC`` o SPECX o ASSUME) ``∀n f. DROP m (GENLIST f (n + m)) = GENLIST (λt. f (t + m)) n``])
+);
+
+val DROP_GENLIST_alt = store_thm("DROP_GENLIST_alt"
+  , ``∀ n m f. DROP m (GENLIST f n) = GENLIST (λt. f (t + m)) (n − m)``
+  ,       (REPEAT STRIP_TAC)
+    THEN  (Cases_on `m <= n:num`)
+    THENL [
+              (REWRITE_TAC [Once ((UNDISCH_ALL o GSYM o SPECL [``n:num``, ``m:num``]) arithmeticTheory.SUB_ADD)]) 
+        THEN  (FULL_SIMP_TAC (arith_ss) [(SPECL [``n - m:num``, ``m:num``, ``f:num -> 'a``]) DROP_GENLIST])
+      ,
+              (FULL_SIMP_TAC (srw_ss()++ARITH_ss) [listTheory.LENGTH_GENLIST, listTheory.DROP_LENGTH_TOO_LONG, arithmeticTheory.NOT_LESS_EQUAL])
+        THEN  (ASSUME_TAC (UNDISCH_ALL (SIMP_RULE (bool_ss) [] (SIMP_CONV (arith_ss) [] ``(n:num) < m ==> n <= m``))))
+        THEN  (FULL_SIMP_TAC (srw_ss()++ARITH_ss) [(UNDISCH_ALL o snd o EQ_IMP_RULE o SPECL [``n:num``, ``m:num``]) arithmeticTheory.SUB_EQ_0])
+    ]
+);
+
 val DROP_SUC = store_thm("DROP_SUC"
-  , ``∀ b v. DROP (SUC b) v = DROP b (DROP 1 v)``
-  ,       (Induct_on `v`)
+  , ``∀ n l. DROP (SUC n) l = DROP n (DROP 1 l)``
+  ,       (Induct_on `l`)
     THEN  (SIMP_TAC (arith_ss) [listTheory.DROP_def])
     THEN  (RW_TAC (arith_ss) [listTheory.DROP_0, listTheory.DROP_def])
 );
 
 val DROP_COMM1 = store_thm("DROP_COMM1"
-  , ``∀ b v. DROP b (DROP 1 v) = DROP 1 (DROP b v)``
-  ,       (Induct_on `v`)
+  , ``∀ n l. DROP n (DROP 1 l) = DROP 1 (DROP n l)``
+  ,       (Induct_on `l`)
     THEN  (SIMP_TAC (arith_ss) [listTheory.DROP_def])
     THEN  (RW_TAC (srw_ss()) [listTheory.DROP_0, listTheory.DROP_def])
-    THEN  (Induct_on `b`)
+    THEN  (Induct_on `n`)
     THEN  (SIMP_TAC (arith_ss) [listTheory.DROP_def])
     THEN  (RW_TAC (arith_ss) [DROP_SUC])
 );
 
 val DROP_COMM = store_thm("DROP_COMM"
-  , ``∀ a b v. DROP b (DROP a v) = DROP a (DROP b v)``
+  , ``∀ a b l. DROP b (DROP a l) = DROP a (DROP b l)``
   ,       (Induct_on `a`)
     THEN  (RW_TAC (arith_ss) [listTheory.DROP_0])
     THEN  (Induct_on `b`)
@@ -434,8 +476,8 @@ val DROP_COMM = store_thm("DROP_COMM"
 );
 
 val DROP_ADD = store_thm("DROP_ADD"
-  , ``∀ a b v. DROP (a + b) v = DROP a (DROP b v)``
-  ,       (Induct_on `v`)
+  , ``∀ a b l. DROP a (DROP b l) = DROP (a + b) l``
+  ,       (Induct_on `l`)
     THEN  (SIMP_TAC (arith_ss) [listTheory.DROP_def])
     THEN  (RW_TAC (arith_ss) [listTheory.DROP_def])
     THEN  (Induct_on `a`)
@@ -445,6 +487,110 @@ val DROP_ADD = store_thm("DROP_ADD"
     THEN  (RW_TAC (arith_ss) [DROP_SUC, arithmeticTheory.ADD1])
     THEN  (REWRITE_TAC [Once DROP_COMM1])
 );
+
+val DROP_SUB = store_thm("DROP_SUB"
+  , ``∀ n m l. m ≤ n ⇒ (DROP n l = DROP (n - m) (DROP m l))``
+  , (FULL_SIMP_TAC (arith_ss) [DROP_ADD])
+);
+
+val DROP1_CONS = store_thm("DROP1_CONS"
+  , ``∀l. LENGTH l > 1 ==> ∃h t. DROP 1 l = h::t``
+  ,       (REPEAT STRIP_TAC)
+    THEN  ((Cases_on `l`) THEN (FULL_SIMP_TAC (arith_ss) [listTheory.LENGTH]))
+    THEN  (Cases_on `LENGTH t > 0`)
+    THEN  (FULL_SIMP_TAC (arith_ss) [listTheory.LENGTH, listTheory.DROP_def, listTheory.DROP_0])
+    THEN  ((Cases_on `t`) THEN (FULL_SIMP_TAC (arith_ss) [listTheory.LENGTH, listTheory.CONS_11]))
+    THEN  (FULL_SIMP_TAC (arith_ss) [listTheory.LENGTH])
+);
+
+val LENGTH_CONS = store_thm("LENGTH_CONS"
+  , ``∀l. LENGTH l > 0 ==> ∃h t. l = h::t``
+  , ((Cases_on `l`) THEN (FULL_SIMP_TAC (arith_ss) [listTheory.LENGTH, listTheory.CONS_11]))
+);
+
+val GREATER_MONO_ADD_EQ = store_thm("GREATER_MONO_ADD_EQ"
+  , ``∀ (m:num) n p. (m + p > n + p) = (m > n)``
+  , (numLib.ARITH_TAC)
+);
+
+val DROP_LENGTH_LONG_ENOUGH = store_thm("DROP_LENGTH_LONG_ENOUGH"
+  , ``∀l n. LENGTH l > n ==> LENGTH (DROP n l) > 0``
+  , (FULL_SIMP_TAC (srw_ss()) [])
+);
+
+val LENGTH_DROP = store_thm("LENGTH_DROP"
+  , ``∀l n. LENGTH (DROP n l) = LENGTH l - n``
+  , (FULL_SIMP_TAC (srw_ss()) [])
+);
+
+val LENGTH_DROP_CONS = store_thm("LENGTH_DROP_CONS"
+  , ``∀l n. LENGTH l > n ⇒ ∃h t. DROP n l = h::t``
+  , (FULL_SIMP_TAC (srw_ss()) [LENGTH_CONS])
+);
+
+val DROP1_APPEND = store_thm("DROP1_APPEND"
+  , ``∀l k. (LENGTH l >= 1) ==> (DROP 1 l ++ k = DROP 1 (l ++ k))``
+  , ((Cases_on `l`) THEN (FULL_SIMP_TAC (srw_ss()++ARITH_ss) [listTheory.LENGTH, listTheory.DROP_0, listTheory.DROP_def]))
+);
+
+val DROP_APPEND = store_thm("DROP_APPEND"
+  , ``∀l k n. (LENGTH l >= n) ==> (DROP n l ++ k = DROP n (l ++ k))``
+  , ((Induct_on `n`) THEN (FULL_SIMP_TAC (srw_ss()++ARITH_ss) [arithmeticTheory.ADD1, GSYM DROP_ADD, DROP1_APPEND]))
+);
+
+val DROP_APPEND_SHORT = store_thm("DROP_APPEND_SHORT"
+  , ``∀l k n. (LENGTH l <= n) ==> (DROP n (l ++ k) = DROP (n - LENGTH l) k)``
+  ,       (Induct_on `n`)
+    THEN  (
+              (FULL_SIMP_TAC (srw_ss()++ARITH_ss) [arithmeticTheory.ADD1, Once arithmeticTheory.ADD_COMM, DROP1_APPEND])
+        THEN  ((Induct_on `l`) THEN (FULL_SIMP_TAC (srw_ss()++ARITH_ss) [arithmeticTheory.SUC_NOT]))
+      )
+    THEN  (FULL_SIMP_TAC (srw_ss()++ARITH_ss) [arithmeticTheory.ADD1, Once arithmeticTheory.ADD_COMM, DROP1_APPEND])
+    THEN  (REPEAT STRIP_TAC)
+    THEN  (ASSUME_TAC (SIMP_RULE arith_ss [listTheory.DROP_LENGTH_TOO_LONG] ((UNDISCH_ALL o (SPECL [``n + 1 :num``, ``LENGTH l``, ``l ++ k``])) DROP_SUB)))
+    THEN  (ASSUME_TAC ((SIMP_RULE (arith_ss) [] o SPECL [``l :'a list``, ``k :'a list``, ``LENGTH l``] o GSYM) DROP_APPEND))
+    THEN  (FULL_SIMP_TAC (pure_ss) [])
+    THEN  (FULL_SIMP_TAC (arith_ss) [listTheory.DROP_LENGTH_TOO_LONG, listTheory.APPEND])
+);
+
+val v2w_shiftl_fixwidth = store_thm("v2w_shiftl_fixwidth"
+  , ``∀(w:bool['a]) m n. (m = word_len w) ==> (v2w (shiftl (fixwidth (SUC (m - n - 1)) (w2v w)) n) :bool['a] = v2w (shiftl (w2v w) n) :bool['a])``
+  ,       (REPEAT STRIP_TAC)
+    THEN  EVAL_TAC
+    THEN  ((Cases_on `n < dimindex(:'a)`) THEN (FULL_SIMP_TAC (srw_ss()++ARITH_ss) [arithmeticTheory.ADD1, DROP_APPEND, listTheory.APPEND, listTheory.LENGTH, listTheory.DROP_def]))
+    THEN  (ASSUME_TAC (UNDISCH_ALL (prove(``¬((n:num) < dimindex(:'a)) ==> (dimindex(:'a) - (n + 1) + 1 = 1)``, numLib.ARITH_TAC))))
+    THEN  (ASSUME_TAC (prove(``1 - dimindex(:'a) = 0``, (ASSUME_TAC ((fst o EQ_IMP_RULE o SPECL [``0:num``, ``dimindex(:'a)``]) arithmeticTheory.LESS_EQ)) THEN (FULL_SIMP_TAC (pure_ss) [arithmeticTheory.ADD1]) THEN (FULL_SIMP_TAC (srw_ss()) []))))
+    THEN  (FULL_SIMP_TAC (pure_ss) [])
+    THEN  (FULL_SIMP_TAC (srw_ss()++ARITH_ss) [DROP_ADD, DROP_APPEND])
+);
+
+val fixwidth_fixwidth_alt = store_thm("fixwidth_fixwidth_alt"
+  , ``∀n m v. (m ≤ n) ==> (fixwidth m (fixwidth n v) = fixwidth m v)``
+  ,      (REPEAT STRIP_TAC)
+    THEN  (FULL_SIMP_TAC (srw_ss()) [bitstringTheory.fixwidth_def, LET_DEF])
+    THEN  (RW_TAC (arith_ss) [])
+    THENL [
+              (* 1/4 *)
+              (REPEATN (2, EVAL_TAC THEN FULL_SIMP_TAC (srw_ss()++ARITH_ss) [GSYM bitstringTheory.extend, bitstringTheory.zero_extend_def, bitstringTheory.sign_extend_def]))
+        THEN  (FULL_SIMP_TAC (srw_ss()++ARITH_ss) [GSYM DROP_APPEND, DROP_GENLIST_alt, combinTheory.K_DEF])
+
+              (* 2/4 *)
+      ,       (REPEATN (2, EVAL_TAC
+        THEN SIMP_TAC (srw_ss()++ARITH_ss) [GSYM bitstringTheory.extend, bitstringTheory.zero_extend_def, bitstringTheory.sign_extend_def]))
+        THEN  (ASSUME_TAC ((UNDISCH_ALL o SPECL [``LENGTH (v :bitstring)``, ``n:num``]) arithmeticTheory.LESS_IMP_LESS_OR_EQ))
+        THEN  (ASSUME_TAC ((UNDISCH_ALL o SIMP_RULE bool_ss [] o SIMP_CONV arith_ss []) ``LENGTH (v:bitstring) < n ==> ¬(LENGTH v < m) ==> (n <= LENGTH v + (n - m))``))
+        THEN  (ASSUME_TAC ((UNDISCH_ALL o SIMP_RULE (arith_ss) [listTheory.LENGTH_GENLIST] o ISPECL [``(GENLIST (K F) (n − LENGTH (v:bitstring)))``, ``v:bitstring``, ``n - m :num``]) DROP_APPEND_SHORT))
+        THEN  (FULL_SIMP_TAC (arith_ss) [])
+
+              (* 3/4 *)
+      ,       (REPEATN (2, EVAL_TAC
+      THEN FULL_SIMP_TAC (srw_ss()++ARITH_ss) [GSYM bitstringTheory.extend, bitstringTheory.zero_extend_def, bitstringTheory.sign_extend_def]))
+
+              (* 4/4 *)
+      ,       (FULL_SIMP_TAC (srw_ss()++ARITH_ss) [DROP_ADD])
+    ]
+);
+
 
 (* ------------------------------------------------------------------------- *)
 val _ = export_theory();
