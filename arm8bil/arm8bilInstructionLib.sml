@@ -873,8 +873,7 @@ fun generate_assert step fault_wt_mem =
 
 
 
-
-fun tc_one_instruction2_by_bin instr pc_value fault_wt_mem =
+fun tc_one_instruction_goal instr pc_value fault_wt_mem =
     let val (p, certs, [step]) = tc_stmt_arm8_hex instr;
   val (sts, sts_ty) = listSyntax.dest_list p;
   (* manually add the memory fault *)
@@ -915,7 +914,13 @@ fun tc_one_instruction2_by_bin instr pc_value fault_wt_mem =
                               List.concat [certs, [t_v1]]) end
   (* standard section *)
   val p = listSyntax.mk_list(sts,sts_ty);
-	val goal = tc_gen_goal p certs step pc_value fault_wt_mem;
+  val goal = tc_gen_goal p certs step pc_value fault_wt_mem 
+	in (goal,certs,step,p) end;
+
+
+
+fun tc_one_instruction2_by_bin instr pc_value fault_wt_mem =
+    let val (goal,certs,step,p) = tc_one_instruction_goal instr pc_value fault_wt_mem;
 	val thm = prove(``^goal``,
       (REWRITE_TAC [sim_invariant_def])
 			THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)

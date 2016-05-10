@@ -78,12 +78,14 @@ fun extract_other_cnd tm =
  in if other = [] then ``T`` else list_mk_conj other end;
 
 
+fun get_PC_value_from_add thm = get_term_from_ass_path ``s.PC = v`` thm;
+
 fun generate_sim_goal thms =
     let val thms_norm = List.map normalize_thm thms;
         val goal = `` (sim_invariant s env pco) /\
                       (NextStateARM8 s = SOME s1)
                    ``;
-       val cnd_PC = List.foldl (fn (thm,cnd) => ``^cnd \/ ^(get_term_from_ass_path ``s.PC = v`` thm)``) ``F`` thms_norm;
+       val cnd_PC = List.foldl (fn (thm,cnd) => ``^cnd \/ ^(get_PC_value_from_add thm)``) ``F`` thms_norm;
        val cnd_PC = (snd o dest_eq o concl) (SIMP_CONV (srw_ss()) [] cnd_PC);
        val goal = ``^goal /\ ^cnd_PC``;
        val goal = List.foldl (fn (thm,cnd) =>
@@ -110,7 +112,7 @@ fun generate_sim_goal thms =
 (* does_match *)
 (* align_conversion_thm *)
 (* Do we really nead to solve the aligned or we can generate the assertion? *)
-
+(* val thm = hd thms; *)
 fun PROVE_SIM_TAC thm =
         fn (asl,goal) => (
             (FULL_SIMP_TAC (srw_ss()) [])
@@ -137,20 +139,6 @@ fun PROVE_SIM_TAC thm =
             THEN (REPEAT DISCH_TAC)
             THEN (ASSUME_TAC thm)
             THEN (REV_FULL_SIMP_TAC (srw_ss()) [sim_invariant_def])
-            (* memory part *)
-            THEN (fn (asl,goal)  => (
-              let (* val mem_cnds = (strip_conj o fst o dest_disj) goal; *)
-                  val mem_cnds = strip_conj goal;
-                  val addrs = List.map (fn tm => ((fn x => List.nth(x,1)) o snd o strip_comb o fst o dest_eq) tm) mem_cnds;
-              in  
-                  MAP_EVERY (fn tm => PAT_ASSUM ``!a:word64.(p==>q)`` (fn thm =>
-                      ASSUME_TAC (SPEC tm thm)
-                      THEN (ASSUME_TAC ((blastLib.BBLAST_PROVE o fst o dest_imp o concl o (SPEC tm)) thm))
-                      THEN (ASSUME_TAC thm)
-                  )) addrs
-              end
-            )(asl,goal))
-            THEN (FULL_SIMP_TAC (srw_ss()) [])
          )(asl,goal);
 
 
@@ -210,6 +198,7 @@ List.foldl (fn (id, x) =>
 
 
 
+
 val id = 1;
 val id = 28;
 val id = 70;
@@ -230,17 +219,153 @@ prove (``^goal``,
 
 
 
-
-
-val curr_ops = ops;
+val curr_ops = ops2;
 print "*****START*************\n*****START*************\n*****START*************\n";
+(* 74 s 7 instructions *)
 val thms = List.map (fn (code, pc) => tc_one_instruction2_by_bin code pc ``\x.x<+0x100000w:word64``) curr_ops;
+(* 1 s??? 7 instructions *)
 val goal = generate_sim_goal thms;
+
+val mem_cnd = (snd o dest_conj o fst o dest_disj o snd o dest_imp o snd o dest_exists o snd o strip_imp) goal;
+val mem_hyp = (snd o dest_eq o concl o EVAL) ``(\s1. ^mem_cnd) s``;
+
+val mem_thm = prove(`` ^mem_hyp ==>
+                           (!a. (λx. x <₊ 0x100000w) a ⇒ (s.MEM a = s1.MEM a)) ==>
+                           ^mem_cnd``,
+   (REPEAT STRIP_TAC)
+   THEN (FULL_SIMP_TAC (srw_ss()) []));
+(* 1.6 s 7 instructions, 544 s 90 instructions *)
+
 val thm1 = prove (``^goal``,
-      (REPEAT STRIP_TAC)
+      (ASSUME_TAC mem_thm)
+      THEN (REPEAT DISCH_TAC)
+      THEN (FULL_SIMP_TAC (srw_ss()) [])
       (* One case for each value of the PC *)
       THENL (List.map PROVE_SIM_TAC thms)
 );
+(* 16.137s *)
+
+
+
+
+
+fun get_var_type var_name =
+    if List.exists (fn tm=>tm=var_name) [``"R0"``, ``"R1"``, ``"R2"``, ``"R3"``, ``"R29"``,
+                                         ``"R30"``, ``"arm8_state_PC"``, ``"arm8_state_SP_EL0"``,
+                                         ``"tmp_R0"``, ``"tmp_R1"``, ``"tmp_R2"``, ``"tmp_R3"``, ``"tmp_R29"``,
+                                         ``"tmp_R30"``, ``"tmp_arm8_state_PC"``, ``"tmp_arm8_state_SP_EL0"``]
+       then ``Bit64``
+    else if var_name = ``"arm8_state_MEM"`` then ``MemByte``
+    else ``T``;
+    
+fun print_type var_type =
+    if var_type = ``Bit64`` then "u64"
+    else if var_type = ``Reg64`` then "u64"
+    else if var_type = ``Bit32`` then "u32"
+    else if var_type = ``Reg32`` then "u32"
+    else if var_type = ``MemByte`` then "?u64"
+    else "ERROR";
+
+     (* (env "ProcState_C" = (Reg Bit1,Int (bool2b s.PSTATE.C))) ∧ *)
+     (* (env "ProcState_N" = (Reg Bit1,Int (bool2b s.PSTATE.N))) ∧ *)
+     (* (env "ProcState_V" = (Reg Bit1,Int (bool2b s.PSTATE.V))) ∧ *)
+     (* (env "ProcState_Z" = (Reg Bit1,Int (bool2b s.PSTATE.Z))) ∧ *)
+
+fun print_exp exp =
+let val (ope, args) = strip_comb exp
+in
+    if ope = ``Den`` then
+       let val var_name = hd args
+           val var_type = get_var_type var_name
+           val var_type_str = print_type var_type
+       in "V_" ^ (stringSyntax.fromHOLstring var_name) ^ ":" ^ var_type_str end
+    else if ope = ``Const`` then
+       let val (var_type, [value]) = (strip_comb o hd) args
+           val var_type_str = print_type var_type
+           val val_str = term_to_string value
+        in (String.substring(val_str, 0, String.size(val_str) -1)) ^ ":" ^ var_type_str end
+    else if ope = ``Plus`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val exp2 = print_exp (List.nth(args, 1))
+       in "("^exp1 ^ ")+(" ^ exp2 ^ ")" end
+    else if ope = ``And`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val exp2 = print_exp (List.nth(args, 1))
+       in "("^exp1 ^ ")&(" ^ exp2 ^ ")" end
+    else if ope = ``Equal`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val exp2 = print_exp (List.nth(args, 1))
+       in "("^exp1 ^ ")==(" ^ exp2 ^ ")" end
+    else if ope = ``LessThan`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val exp2 = print_exp (List.nth(args, 1))
+       in "("^exp1 ^ ")<(" ^ exp2 ^ ")" end
+    else if ope = ``Not`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+       in "~("^exp1 ^ ")" end
+    else if ope = ``LowCast`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val ty_str = print_type (List.nth(args, 1))
+       in "low:"^ty_str^"("^exp1 ^ ")" end
+    else if ope = ``Store`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val exp2 = print_exp (List.nth(args, 1))
+           val exp3 = print_exp (List.nth(args, 2))
+           val ty = List.nth(args, 4)
+       in if ty = ``Bit64`` then "("^exp1 ^ ") with [" ^ exp2 ^ ", e_little]:u64 = " ^ exp3
+          else if ty = ``Bit32`` then "("^exp1 ^ ") with [" ^ exp2 ^ ", e_little]:u32 = " ^ exp3
+          else "ERROR"
+       end
+    else "ERROR"
+end;
+
+fun print_statement statement =
+let val (inst,args) = strip_comb statement
+in
+  if inst = ``Assign`` then
+     let val exp = (List.nth(args,1))
+         val exp_str = print_exp exp
+         val var_name = (List.nth(args,0))
+         val var_type = get_var_type var_name
+         val var_type_str = print_type var_type
+     in (stringSyntax.fromHOLstring var_name) ^ ":" ^ var_type_str ^ "=" ^exp_str ^ "\n" end
+  else if inst = ``Jmp`` then
+     let val exp = (List.nth(args,0))
+         val exp_str = print_exp exp
+     in "jmp " ^exp_str ^ "\n" end
+  else if inst = ``Assert`` then
+     let val exp = (List.nth(args,0))
+         val exp_str = print_exp exp
+     in "assert " ^exp_str ^ "\n" end
+  else "ERROR\n"
+end;
+
+fun print_block block =
+let val instrs = (snd o pairSyntax.dest_pair o optionSyntax.dest_some o snd o dest_eq o snd o dest_exists) block;
+    val (_, [("label", lbl),  ("statements", sts)]) = TypeBase.dest_record instrs;
+    val (sts1, _) = listSyntax.dest_list sts;
+    val (_, pc) = dest_comb lbl;
+    val pc_str = (print_exp ``Const ^pc``)
+    val pc_str = "addr " ^ (String.substring(pc_str, 0, String.size(pc_str) -4)) ^ "\n";
+    val frag_str =  "\n" ^ (String.concat (pc_str::(List.map print_statement sts1))) ^ "\n";
+in frag_str end;
+
+
+
+val curr_ops = ops2;
+print "*****START*************\n*****START*************\n*****START*************\n";
+(* 74 s 7 instructions *)
+val goals = List.map (fn (code, pc) => 
+    let val (goal,certs,step,p) = tc_one_instruction_goal code pc ``\x.x<+0x100000w:word64``
+    in
+      (snd o dest_eq o concl) (REWRITE_CONV [ASSUME ``s.PC=^pc``] goal)
+ end) curr_ops;
+
+val blocks = List.map (fn tm =>
+ let val hyp = (fst o strip_imp) tm
+ in List.nth(hyp, List.length(hyp) - 3) end) goals;
+
+List.map (print o print_block) blocks;
 
 
 
@@ -248,6 +373,29 @@ val thm1 = prove (``^goal``,
 
 
 
+
+
+
+val blocks = List.filter (fn tm =>
+ (((fst o strip_comb o fst o dest_eq o snd o dest_exists) tm) = ``(INDEX_FIND :num ->
+               (bil_block_t -> bool) ->
+               program -> (num # bil_block_t) option)``)
+ handle _ => false
+)
+((strip_conj o fst o dest_imp) goal);
+
+
+List.map (print o print_block) blocks;
+
+val block = List.nth(blocks, 4);
+
+print (print_block block)
+
+val instrs = (snd o pairSyntax.dest_pair o optionSyntax.dest_some o snd o dest_eq o snd o dest_exists) block;
+val (_, [("label", lbl),  ("statements", sts)]) = TypeBase.dest_record instrs;
+val (sts1, _) = listSyntax.dest_list sts;
+val statement = List.nth(sts1, 6);
+print_statement statement;
 
 
 (*   2c:   7900001f        strh    wzr, [x0] *)
@@ -304,6 +452,7 @@ val (instr, pc_value) = (List.nth(ops, id));
   (* standard section *)
   val p = listSyntax.mk_list(sts,sts_ty);
 	val goal = tc_gen_goal p certs step pc_value fault_wt_mem;
+  
 	val thm = prove(``^goal``,
       (REWRITE_TAC [sim_invariant_def])
 			THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC) THEN (DISCH_TAC)
