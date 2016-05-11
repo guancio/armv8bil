@@ -255,6 +255,10 @@ fun get_var_type var_name =
                                          ``"tmp_R0"``, ``"tmp_R1"``, ``"tmp_R2"``, ``"tmp_R3"``, ``"tmp_R29"``,
                                          ``"tmp_R30"``, ``"tmp_arm8_state_PC"``, ``"tmp_arm8_state_SP_EL0"``]
        then ``Bit64``
+    else if List.exists (fn tm=>tm=var_name)
+            [``"ProcState_C"``, ``"ProcState_N"``, ``"ProcState_V"``, ``"ProcState_Z"``,
+``"tmp_ProcState_C"``, ``"tmp_ProcState_N"``, ``"tmp_ProcState_V"``, ``"tmp_ProcState_Z"``
+] then ``Bit1``
     else if var_name = ``"arm8_state_MEM"`` then ``MemByte``
     else ``T``;
     
@@ -263,6 +267,10 @@ fun print_type var_type =
     else if var_type = ``Reg64`` then "u64"
     else if var_type = ``Bit32`` then "u32"
     else if var_type = ``Reg32`` then "u32"
+    else if var_type = ``Bit16`` then "u16"
+    else if var_type = ``Reg16`` then "u16"
+    else if var_type = ``Bit1`` then "bool"
+    else if var_type = ``Reg1`` then "bool"
     else if var_type = ``MemByte`` then "?u64"
     else "ERROR";
 
@@ -270,6 +278,14 @@ fun print_type var_type =
      (* (env "ProcState_N" = (Reg Bit1,Int (bool2b s.PSTATE.N))) ∧ *)
      (* (env "ProcState_V" = (Reg Bit1,Int (bool2b s.PSTATE.V))) ∧ *)
      (* (env "ProcState_Z" = (Reg Bit1,Int (bool2b s.PSTATE.Z))) ∧ *)
+
+
+(* let casttype_of_string = function *)
+(*   | "pad"     -> CAST_UNSIGNED *)
+(*   | "extend"  -> CAST_SIGNED   *)
+(*   | "high"    -> CAST_HIGH     *)
+(*   | "low"     -> CAST_LOW      *)
+(*   | s -> err("Unexpected cast type '"^s^"'") *)
 
 fun print_exp exp =
 let val (ope, args) = strip_comb exp
@@ -288,10 +304,30 @@ in
        let val exp1 = print_exp (List.nth(args, 0))
            val exp2 = print_exp (List.nth(args, 1))
        in "("^exp1 ^ ")+(" ^ exp2 ^ ")" end
+    else if ope = ``Mult`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val exp2 = print_exp (List.nth(args, 1))
+       in "("^exp1 ^ ")*(" ^ exp2 ^ ")" end
+    else if ope = ``Mod`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val exp2 = print_exp (List.nth(args, 1))
+       in "("^exp1 ^ ")%(" ^ exp2 ^ ")" end
     else if ope = ``And`` then
        let val exp1 = print_exp (List.nth(args, 0))
            val exp2 = print_exp (List.nth(args, 1))
        in "("^exp1 ^ ")&(" ^ exp2 ^ ")" end
+    else if ope = ``Or`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val exp2 = print_exp (List.nth(args, 1))
+       in "("^exp1 ^ ")|(" ^ exp2 ^ ")" end
+    else if ope = ``RightShift`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val exp2 = print_exp (List.nth(args, 1))
+       in "("^exp1 ^ ")>>(" ^ exp2 ^ ")" end
+    else if ope = ``LeftShift`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val exp2 = print_exp (List.nth(args, 1))
+       in "("^exp1 ^ ")<<(" ^ exp2 ^ ")" end
     else if ope = ``Equal`` then
        let val exp1 = print_exp (List.nth(args, 0))
            val exp2 = print_exp (List.nth(args, 1))
@@ -300,13 +336,37 @@ in
        let val exp1 = print_exp (List.nth(args, 0))
            val exp2 = print_exp (List.nth(args, 1))
        in "("^exp1 ^ ")<(" ^ exp2 ^ ")" end
+    else if ope = ``SignedLessThan`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val exp2 = print_exp (List.nth(args, 1))
+       in "("^exp1 ^ ")$<(" ^ exp2 ^ ")" end
     else if ope = ``Not`` then
        let val exp1 = print_exp (List.nth(args, 0))
        in "~("^exp1 ^ ")" end
+    else if ope = ``ChangeSign`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+       in "-("^exp1 ^ ")" end
     else if ope = ``LowCast`` then
        let val exp1 = print_exp (List.nth(args, 0))
            val ty_str = print_type (List.nth(args, 1))
        in "low:"^ty_str^"("^exp1 ^ ")" end
+    else if ope = ``Cast`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val ty_str = print_type (List.nth(args, 1))
+       in "pad:"^ty_str^"("^exp1 ^ ")" end
+    else if ope = ``SignedCast`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val ty_str = print_type (List.nth(args, 1))
+       in "extend:"^ty_str^"("^exp1 ^ ")" end
+    else if ope = ``Load`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val exp2 = print_exp (List.nth(args, 1))
+           val ty = List.nth(args, 3)
+       in if ty = ``Bit64`` then "(("^exp1 ^ ")[" ^ exp2 ^ ", e_little]:u64)"
+          else if ty = ``Bit32`` then "(("^exp1 ^ ")[" ^ exp2 ^ ", e_little]:u32)"
+          else if ty = ``Bit16`` then "(("^exp1 ^ ")[" ^ exp2 ^ ", e_little]:u16)"
+          else "ERROR"
+       end
     else if ope = ``Store`` then
        let val exp1 = print_exp (List.nth(args, 0))
            val exp2 = print_exp (List.nth(args, 1))
@@ -314,7 +374,14 @@ in
            val ty = List.nth(args, 4)
        in if ty = ``Bit64`` then "("^exp1 ^ ") with [" ^ exp2 ^ ", e_little]:u64 = " ^ exp3
           else if ty = ``Bit32`` then "("^exp1 ^ ") with [" ^ exp2 ^ ", e_little]:u32 = " ^ exp3
+          else if ty = ``Bit16`` then "("^exp1 ^ ") with [" ^ exp2 ^ ", e_little]:u16 = " ^ exp3
           else "ERROR"
+       end
+    else if ope = ``IfThenElse`` then
+       let val exp1 = print_exp (List.nth(args, 0))
+           val exp2 = print_exp (List.nth(args, 1))
+           val exp3 = print_exp (List.nth(args, 2))
+       in "if (" ^exp1^") then ("^exp2^") else (" ^exp3^")"
        end
     else "ERROR"
 end;
@@ -328,11 +395,19 @@ in
          val var_name = (List.nth(args,0))
          val var_type = get_var_type var_name
          val var_type_str = print_type var_type
-     in (stringSyntax.fromHOLstring var_name) ^ ":" ^ var_type_str ^ "=" ^exp_str ^ "\n" end
+     in "V_" ^ (stringSyntax.fromHOLstring var_name) ^ ":" ^ var_type_str ^ "=" ^exp_str ^ "\n" end
   else if inst = ``Jmp`` then
      let val exp = (List.nth(args,0))
          val exp_str = print_exp exp
      in "jmp " ^exp_str ^ "\n" end
+  else if inst = ``CJmp`` then
+     let val exp1 = (List.nth(args,0))
+         val exp2 = (List.nth(args,1))
+         val exp3 = (List.nth(args,2))
+         val exp1_str = print_exp exp1
+         val exp2_str = print_exp exp2
+         val exp3_str = print_exp exp3
+     in "cjmp " ^exp1_str ^ ", " ^ exp2_str ^ ", " ^ exp3_str^ "\n" end
   else if inst = ``Assert`` then
      let val exp = (List.nth(args,0))
          val exp_str = print_exp exp
@@ -352,9 +427,8 @@ in frag_str end;
 
 
 
-val curr_ops = ops2;
-print "*****START*************\n*****START*************\n*****START*************\n";
-(* 74 s 7 instructions *)
+
+val curr_ops = [List.nth(ops, 112 div 4)];
 val goals = List.map (fn (code, pc) => 
     let val (goal,certs,step,p) = tc_one_instruction_goal code pc ``\x.x<+0x100000w:word64``
     in
@@ -368,6 +442,20 @@ val blocks = List.map (fn tm =>
 List.map (print o print_block) blocks;
 
 
+
+
+val curr_ops_all = ops;
+val goals_all = List.map (fn (code, pc) => 
+    let val (goal,certs,step,p) = tc_one_instruction_goal code pc ``\x.x<+0x100000w:word64``
+    in
+      (snd o dest_eq o concl) (REWRITE_CONV [ASSUME ``s.PC=^pc``] goal)
+ end) curr_ops_all;
+
+val blocks = List.map (fn tm =>
+ let val hyp = (fst o strip_imp) tm
+ in List.nth(hyp, List.length(hyp) - 3) end) goals_all;
+
+List.map (print o print_block) blocks;
 
 
 
