@@ -9,7 +9,7 @@ open stateTheory;
 open lcsymtacs arm8_stepTheory;
 open state_transformerSyntax;
 open arm8_stepLib;
-open proofTools arithTheory;
+open proofTools arithTheory carryTheory;
 open bilTheory arm8bilTheory;
 open arm8bilLib;
 HOL_Interactive.toggle_quietdec();
@@ -247,4 +247,146 @@ val f0 = extract_fun ae;
 
 
 
+val [[t]] = arm8_step_code `ADD W0, W1, W2`;
+val s1 = ((optionSyntax.dest_some o snd o dest_eq o concl) t);
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.REG 0w``;
+tc_exp_arm8 exp;
 
+val [[t]] = arm8_step_code `ADDS W0, W1, W2`;
+val s1 = ((optionSyntax.dest_some o snd o dest_eq o concl) t);
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.PSTATE.V``;
+tc_exp_arm8 exp;
+
+tc_exp_arm8 ``s.REG 1w``;
+tc_exp_arm8 ``(w2w (s.REG 1w)):word32``;
+tc_exp_arm8 ``word_msb ((w2w (s.REG 1w)):word32)``;
+tc_exp_arm8 ((fst o dest_conj) exp);
+
+val BIT31_thm = prove(`` ∀n. BIT 31 n ⇔ word_lsb (n2w n >>>~ 31w:word32)``,
+    cheat);
+
+val exp1 = (snd o dest_eq o concl o  (REWRITE_CONV [BIT31_thm])) exp;
+
+tc_exp_arm8 ((fst o dest_conj) exp1);
+val exp2 = ((snd o dest_conj) exp1);
+
+tc_exp_arm8 ((fst o dest_eq o dest_neg) exp2);
+
+val exp3 = ((snd o dest_eq o dest_neg) exp2);
+val ae = exp3;
+(wordsSyntax.is_word_lsb ae);
+val (o1, o2, o3) = extract_operands ae;
+val f0 = extract_fun ae;
+
+(tc_exp_arm8 o1);
+
+
+val mp = (GEN_ALL o DISCH_ALL) (MP_UN (select_bil_op_theorem ((fst o strip_comb) ae) (word_size o1)) (tce o1))
+
+
+
+
+tc_exp_arm8 ``word_lsb (w2w(s.REG 1w):word32)``;
+
+val exp4 = snd (dest_comb exp3);
+val exp5 = (List.hd o snd o strip_comb) exp4;
+tc_exp_arm8 exp5;
+
+tc_exp_arm8``(n2w
+     (w2n (w2w ((s :arm8_state).REG (1w :word5)) :word64) +
+      w2n (w2w (s.REG (2w :word5)) :word64)) :word64)``;
+
+
+
+val ae = exp4;
+(wordsSyntax.is_w2n         ae);
+val (o1, o2, o3) = extract_operands ae;
+val f0 = extract_fun ae;
+
+
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.PSTATE.C``;
+tc_exp_arm8 exp;
+
+(* OK *)
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.PSTATE.Z``;
+tc_exp_arm8 exp;
+
+
+(* OK *)
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.PSTATE.N``;
+tc_exp_arm8 exp;
+
+
+
+
+val [[t]] = arm8_step_code `ADDS X0, X1, X2`;
+val s1 = ((optionSyntax.dest_some o snd o dest_eq o concl) t);
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.PSTATE.V``;
+val exp1 = (snd o dest_eq o concl o  (REWRITE_CONV [BIT63_thm])) exp;
+tc_exp_arm8 exp1;
+
+tc_exp_arm8 exp;
+
+tc_exp_arm8 ``s.REG 1w``;
+tc_exp_arm8 ``(w2w (s.REG 1w)):word32``;
+tc_exp_arm8 ``word_msb ((w2w (s.REG 1w)):word32)``;
+tc_exp_arm8 ((fst o dest_conj) exp);
+
+
+
+> > val it =
+   ``(word_msb (s.REG 1w) ⇔ word_msb (s.REG 2w)) ∧
+  (word_msb (s.REG 1w) ⇎
+  
+   word_lsb (n2w (w2n (s.REG 1w) + w2n (s.REG 2w)) >>>~ 63w))``:
+   term
+
+``(word_msb (w2w (s.REG 1w)) ⇔ word_msb (w2w (s.REG 2w))) ∧
+  (word_msb (w2w (s.REG 1w)) ⇎
+
+
+   word_lsb
+     (n2w (w2n (w2w (s.REG 1w)) + w2n (w2w (s.REG 2w))) >>>~ 31w))``:
+
+
+tc_exp_arm8 ``word_lsb (n2w (w2n (s.REG 1w) + w2n (s.REG 2w)) >>>~ 63w:word64)``;
+tc_exp_arm8 ``word_lsb (n2w (w2n (w2w(s.REG 1w):word64) + w2n (s.REG 2w)) >>>~ 63w:word64)``;
+
+val exp3 = ``word_lsb (n2w (w2n (w2w(s.REG 1w):word64) + w2n (w2w (s.REG 2w):word64)) >>>~ 63w:word64)``;
+val ae = exp3;
+(wordsSyntax.is_word_lsb ae);
+val (o1, o2, o3) = extract_operands ae;
+val f0 = extract_fun ae;
+
+(tc_exp_arm8 o1);
+
+      (let val _ = if (type_of ae) = ``:bool`` then true
+		   else raise UnsupportedARM8ExpressionException ae
+	   val new_exp_thm = (SIMP_CONV (myss) [
+      			(* These are for the C flag in addittion *)
+      			carry_thm, plus_lt_2exp64_tm,
+      			(* These are for the C flag in subtractions *)
+			minus_lt_2exp64_tm,
+      			(* These are for the V flag in addittion *)
+      			BIT63_thm, Bword_add_64_thm] ae)
+      	   val ae0 = (fst o dest_eq o concl) new_exp_thm
+      	   val ae1 = (snd o dest_eq o concl) new_exp_thm
+	   val t1 = MP_UN eq_trans_on_env_tm (tce ae1)
+	   val t1_gen_v3 = GEN ``v3:bool`` t1
+	   val t1_on_ae0 = SPEC ae0 t1_gen_v3
+	   val t2 = MP t1_on_ae0 (SYM new_exp_thm)
+	   val mp = (GEN_ALL o DISCH_ALL) t2
+	   val be = List.nth ((snd o strip_comb o fst o dest_eq o concl o UNDISCH_ALL o SPEC_ALL) mp, 0)
+      	   in
+	      (be, ae, mp)
+       end)
+
+
+
+
+
+tc_exp_arm8 ``word_lsb ((n2w (w2n (s.REG 1w) + w2n (s.REG 2w)):word64):word64)``;
+tc_exp_arm8 ``word_lsb (n2w (w2n (w2w(s.REG 1w):word64) + w2n (s.REG 2w)) >>>~ 63w:word64)``;
+
+
+val prefix = "";

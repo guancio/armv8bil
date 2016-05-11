@@ -929,8 +929,23 @@ val Bword_add_thm = Q.store_thm("Bword_add_thm",
 
 val Bword_add_64_thm = (Thm.INST_TYPE [alpha |-> ``:64``])Bword_add_thm;
 
-val word_bit_to_BIT_thm = prove (``!x y . (word_bit x (y:word64)) =
-  (BIT x (w2n y))``,  cheat);
+val word_bit_to_BIT_thm = prove (``!x y . (word_bit x (y:word64)) = (BIT x (w2n y))``,
+  (REPEAT STRIP_TAC)
+  THEN (REWRITE_TAC [(Once o GSYM o (ISPEC ``y:word64``)) wordsTheory.n2w_w2n])
+  THEN (FULL_SIMP_TAC (srw_ss()) [wordsTheory.word_bit_n2w])
+  THEN (Cases_on `x <= 63`)
+  THENL [FULL_SIMP_TAC (srw_ss()) [],
+  	FULL_SIMP_TAC (srw_ss()) []]
+  THEN (FULL_SIMP_TAC (srw_ss()) [bitTheory.BIT_def])
+  THEN (ASSUME_TAC (SPECL [``x:num``, ``x:num``, ``w2n (y:word64)``] bitTheory.BITS_LT_LOW))
+  THEN (ASSUME_TAC (ISPEC ``y:word64`` wordsTheory.w2n_lt))
+  THEN (FULL_SIMP_TAC (srw_ss()) [])
+  THEN (`2**x >= 2**64` by ALL_TAC)
+  THENL [
+    (FULL_SIMP_TAC (arith_ss) [arithmeticTheory.GREATER_EQ]),
+    ALL_TAC]
+  THEN (FULL_SIMP_TAC (arith_ss) [])
+);
 
 
 
