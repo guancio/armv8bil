@@ -247,6 +247,7 @@ val f0 = extract_fun ae;
 
 
 
+
 val [[t]] = arm8_step_code `ADD W0, W1, W2`;
 val s1 = ((optionSyntax.dest_some o snd o dest_eq o concl) t);
 val exp = (snd o dest_eq o concl o EVAL) ``^s1.REG 0w``;
@@ -390,3 +391,56 @@ tc_exp_arm8 ``word_lsb (n2w (w2n (w2w(s.REG 1w):word64) + w2n (s.REG 2w)) >>>~ 6
 
 
 val prefix = "";
+
+
+
+
+(* ******************** *)
+(* ERROR WITH 13047c00 *)
+(* ******************** *)
+
+val [t] = arm8_step_hex "13047c00";
+val s1 = ((optionSyntax.dest_some o snd o dest_comb o concl) t);
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.REG 0w``;
+val exp = (snd o dest_eq o concl o (SIMP_CONV (srw_ss()) [ASSUME ``imm=0xFFFFFFFFw:word32``, ASSUME ``x=0xFFFFFFFw:word32``])) exp;
+tc_exp_arm8 exp;
+
+
+val exp =    ``word_bit (31 :num) (w2w (s.REG (0w :word5)) :word32)``;
+tc_exp_arm8 exp;
+
+(* Same problem here *)
+val [t] = arm8_step_hex "131f7c20";
+
+val [t] = arm8_step_hex "1ac02020";
+val s1 = ((optionSyntax.dest_some o snd o dest_comb o concl) t);
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.REG 0w``;
+tc_exp_arm8 exp;
+
+
+val [t] = arm8_step_hex "eb1f001f";
+val s1 = ((optionSyntax.dest_some o snd o dest_comb o concl) t);
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.PSTATE.C``;
+tc_exp_arm8 exp;
+
+(* store of two registers *)
+val [t] = arm8_step_hex "a9b97bfd";
+val s1 = ((optionSyntax.dest_some o snd o dest_comb o concl) t);
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.MEM``;
+tc_exp_arm8 exp;
+
+(* Update of register 29 that i not part of the simulation *)
+val [t] = arm8_step_hex "910003fd";
+val s1 = ((optionSyntax.dest_some o snd o dest_comb o concl) t);
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.MEM``;
+tc_exp_arm8 exp;
+
+(* Usage of register 29 that i not part of the simulation *)
+val [t] = arm8_step_hex "f9001fa0";
+val s1 = ((optionSyntax.dest_some o snd o dest_comb o concl) t);
+val exp = (snd o dest_eq o concl o EVAL) ``^s1.MEM``;
+tc_exp_arm8 exp;
+
+
+val [t] = arm8_step_hex "b90037a1";
+b90037a1

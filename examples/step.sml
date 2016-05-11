@@ -254,12 +254,16 @@ val thm1 = prove (``^goal``,
 val inst = `MOV X1, #1`;
 val code = arm8AssemblerLib.arm8_code `MOV X1, #1`;
 val instr = (hd code);
-val instr = "d65f03c0";
-
+val instr = "13047c00";
 val pc_value = ``376w:word64``;
+
+val id = 1;
+val x = 1;
+val (instr, pc_value) = (List.nth(ops, id));
+
 (* 2.11 seconds *)
   val fault_wt_mem = ``\x.x<+0x100000w:word64``;
-val (p, certs, [step]) = tc_stmt_arm8_hex instr;
+  val (p, certs, [step]) = tc_stmt_arm8_hex instr;
   val (sts, sts_ty) = listSyntax.dest_list p;
   (* manually add the memory fault *)
   val (memory_check_needed, assert_stm, assert_cert) = generate_assert step fault_wt_mem;
@@ -338,9 +342,7 @@ val (p, certs, [step]) = tc_stmt_arm8_hex instr;
       THEN (UNABBREV_ALL_TAC)
       THEN (RW_TAC (srw_ss()) [combinTheory.UPDATE_def])
       THEN (FULL_SIMP_TAC (srw_ss()) [])
-
 );
-
 
       THEN (ONE_EXEC_MAIN certs p pc_value 1)
       THEN (ONE_EXEC_MAIN certs p pc_value 2)
@@ -350,6 +352,91 @@ val (p, certs, [step]) = tc_stmt_arm8_hex instr;
       
       THEN (ONE_EXEC_MAIN certs p pc_value 6)
       THEN (ONE_EXEC_MAIN certs p pc_value 7)
+
+
+val lbl_non_empty_thm = prove(``!pc.Address (Reg64 pc) ≠ Label ""``, FULL_SIMP_TAC (srw_ss()) []);
+val inv_empty_var = UNDISCH(prove(``(sim_invariant s env pco) ==> (env "" = (NoType,Unknown))``,
+        FULL_SIMP_TAC (bool_ss) [sim_invariant_def]));
+
+
+fun assert () = 
+let
+val program_ass = List.nth((fst o strip_imp) goal, 3);
+val (_, [_, ("statements", sts)]) = (TypeBase.dest_record o snd o pairSyntax.dest_pair o optionSyntax.dest_some o snd o dest_eq o snd o dest_exists) program_ass;
+val (sts1, _) = listSyntax.dest_list sts;
+val statement = List.nth(sts1, 0);
+val (operator, [exp]) = strip_comb statement;
+val th_just = (List.nth (certs, 0));
+val th_just1 = SPEC ``env:environment`` th_just;
+val th_just2 = if is_forall (concl th_just1)
+    		   then SPEC ``s:arm8_state`` th_just1
+		       else th_just1;
+val hy_just = (hd o hyp o UNDISCH) th_just2;
+val th_hy_just = UNDISCH(prove(``(sim_invariant s env pco) ==> ^hy_just``,
+        FULL_SIMP_TAC (bool_ss) [sim_invariant_def]));
+val th_just4 = MP th_just2 th_hy_just;
+val value = (hd o snd o strip_comb o hd o snd o strip_comb o snd o dest_eq o snd o strip_imp o concl) th_just2;
+val label = ``Address (Reg64 ^pc_value)``;
+val th1 = SPECL [pc_value, ``env:environment``, ``e1:num``, exp, value, label, ``8:num``, sts, ``0:num``] assert_step_thm;
+val lbl_not_empty_thm = SPEC pc_value lbl_non_empty_thm;
+val non_zero_steps = prove(``8:num > 0``, FULL_SIMP_TAC (arith_ss) []);
+val hd_thm = EVAL ``EL 0 ^sts``
+(* prove (``(EL 0 ^sts = Assert ^exp)``, (FULL_SIMP_TAC (srw_ss()) [])); *)
+val length_thm = prove (``(LENGTH ^sts > 0+1)``, (FULL_SIMP_TAC (srw_ss()) []));
+val empty_var = inv_empty_var;
+val th2 = MP (MP (MP (MP (MP (MP th1 lbl_not_empty_thm) non_zero_steps) hd_thm) length_thm) empty_var) th_just4;
+in
+th2
+end;
+
+
+val n = 1;
+fun assert_rule n = 
+let
+val n_num = (numSyntax.mk_numeral(Arbnum.fromInt(n)))
+val program_ass = List.nth((fst o strip_imp) goal, 3);
+val (_, [_, ("statements", sts)]) = (TypeBase.dest_record o snd o pairSyntax.dest_pair o optionSyntax.dest_some o snd o dest_eq o snd o dest_exists) program_ass;
+val (sts1, _) = listSyntax.dest_list sts;
+val statement = List.nth(sts1, n);
+val (operator, [exp]) = strip_comb statement;
+val th_just = (List.nth (certs, n));
+val th_just1 = SPEC ``env:environment`` th_just;
+val th_just2 = if is_forall (concl th_just1)
+    		   then SPEC ``s:arm8_state`` th_just1
+		       else th_just1;
+val hy_just = (hd o hyp o UNDISCH) th_just2;
+val th_hy_just = UNDISCH(prove(``(sim_invariant s env pco) ==> ^hy_just``,
+        FULL_SIMP_TAC (bool_ss) [sim_invariant_def]));
+val th_just4 = MP th_just2 th_hy_just;
+val value = (hd o snd o strip_comb o hd o snd o strip_comb o snd o dest_eq o snd o strip_imp o concl) th_just2;
+val label = ``Address (Reg64 ^pc_value)``;
+val th1 = SPECL [pc_value, ``env:environment``, ``e1+^n_num``, exp, value, label, ``8-^n_num``, sts, n_num] assert_step_thm;
+val lbl_not_empty_thm = SPEC pc_value lbl_non_empty_thm;
+val non_zero_steps = prove(``8-^n_num > 0``, FULL_SIMP_TAC (arith_ss) []);
+val hd_thm = EVAL ``EL ^n_num ^sts``
+val length_thm = prove (``(LENGTH ^sts > ^n_num+1)``, (FULL_SIMP_TAC (srw_ss()) []));
+val empty_var = inv_empty_var;
+val th2 = MP (MP (MP (MP (MP (MP th1 lbl_not_empty_thm) non_zero_steps) hd_thm) length_thm) empty_var) th_just4;
+in
+(SIMP_RULE (arith_ss) [] (UNDISCH th2))
+end;
+
+val th1 = assert_rule 0;
+val th1_ok = CONJUNCT1 th1;
+val th1_fail = UNDISCH (CONJUNCT2 th1);
+val th1_ok_1 = UNDISCH th1_ok;
+
+val th2 = assert_rule 1;
+val th2_ok = CONJUNCT1 th2;
+val th2_fail = UNDISCH (CONJUNCT2 th2);
+val th2_ok_1 = UNDISCH th2_ok;
+
+val thok = TRANS th1_ok_1 th2_ok_1;
+
+val thfail = REWRITE_RULE [SYM th1_ok_1] th2_fail;
+
+
+
 
 
 val [th] = arm8thl;
