@@ -1,2 +1,45 @@
-To compile, remembed to add a link
-from l3-machine-code to the <hol_folder>/examples/l3-machine-code
+Formal model of the BIL language and certifying ARMv8 transcompiler
+
+* Dependencies
+HOL4 (tested using the git commit: 6a5443a16aa2f5b5c9d4485224aca15d4a40d6be)
+
+* Compilation
+
+- create a symbolic link from l3-machine-code to the proper HOL4 directory
+  ln -s <hol_folder>/examples/l3-machine-code l3-machine-code
+
+- compile the BIL model and the transcompiler and the HOL4 heap
+  (to speed up loading times)
+  cd bin
+  <hol_folder>/bin/Holmake
+
+* Translation of a single instruction
+
+  in the ./bin directory prepare a file (e.g. test.sml) with the following
+  content
+
+HOL_Interactive.toggle_quietdec();
+open HolKernel boolLib bossLib Parse;
+open lcsymtacs utilsLib;
+open wordsLib blastLib;
+open state_transformerTheory updateTheory arm8Theory;
+open stateTheory;
+open lcsymtacs arm8_stepTheory;
+open state_transformerSyntax;
+open arm8_stepLib;
+open proofTools arithTheory;
+open bilTheory arm8bilTheory;
+open arm8bilLib;
+open arm8stepbilLib;
+open arm8bilInstructionLib;
+HOL_Interactive.toggle_quietdec();
+
+val th = tc_one_instruction2_by_bin "d37ff800" ``4w:word64`` ``\x.x<+0x100000w:word64``;
+print_thm th;
+
+Here, "d37ff800" is the hexadecimal representation of the instruction, ``4`` is
+the address where the instruction is stored and ``\x.x<+0x100000w:word64`` is a
+property stating where the executable code is stored.
+
+From the ./bin directory execute
+
