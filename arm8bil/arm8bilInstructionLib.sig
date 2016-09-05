@@ -6,5 +6,8 @@ sig
 
   val tc_one_instruction2_by_bin : string -> term -> term -> thm
   val tc_one_instruction2        : string quotation -> term -> term -> thm
+  val sim_invariant_def		: thm
+  val does_match : term -> term -> bool
+  val align_conversion_thm      : thm
 (* ------------------------------------------------------------------------- *)
 end

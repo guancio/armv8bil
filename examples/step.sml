@@ -12,6 +12,7 @@ open bilTheory arm8bilTheory;
 open arm8bilLib;
 open arm8stepbilLib;
 open arm8bilInstructionLib;
+open mainLib;
 HOL_Interactive.toggle_quietdec();
  
 
@@ -208,7 +209,14 @@ List.foldl (fn (id, x) =>
 ) 1 ids;
 
 
-
+val instructions = [
+"d10103ff","f9000fe0","f9000be1","f90007e2","b90007e3","b9003bff","14000009"
+];
+val pcs = snd (List.foldl (fn (code, (pc, pcs)) =>
+  ((snd o dest_eq o concl o EVAL) ``^pc+4w``, List.concat[pcs, [pc]])
+) (``0w:word64``, []) instructions);
+val ops = ListPair.zip (instructions, pcs);
+val thm = lift_program(ops);
 
 val id = 1;
 val id = 28;
@@ -241,7 +249,7 @@ val thm1 = prove (``^goal``,
       (* One case for each value of the PC *)
       THENL (List.map PROVE_SIM_TAC thms)
 );
-
+print_thm thm1;
 
 
 
